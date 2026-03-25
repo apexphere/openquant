@@ -9,11 +9,11 @@ from openquant.indicators.median_ad import median_ad
 
 # Try to import the high-performance Rust implementation
 try:
-    from openquant_rust import bollinger_bands as bb_rust  # type: ignore
-    from openquant_rust import moving_std
+    from jesse_rust import bollinger_bands as bb_rust  # type: ignore
+    from jesse_rust import moving_std
 except ImportError:  # pragma: no cover
     bb_rust = None  # type: ignore
-    from openquant_rust import moving_std
+    from jesse_rust import moving_std
 
 
 BollingerBands = namedtuple('BollingerBands', ['upperband', 'middleband', 'lowerband'])

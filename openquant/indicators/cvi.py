@@ -1,7 +1,7 @@
 from typing import Union
 import numpy as np
 import openquant.helpers as jh
-from openquant_rust import cvi as cvi_rust
+from jesse_rust import cvi as cvi_rust
 
 
 def cvi(candles: np.ndarray, period: int = 5, sequential: bool = False) -> Union[float, np.ndarray]:

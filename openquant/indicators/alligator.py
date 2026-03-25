@@ -1,7 +1,7 @@
 from collections import namedtuple
 import numpy as np
 from openquant.helpers import get_candle_source, slice_candles
-from openquant_rust import smma, shift, alligator as alligator_rust
+from jesse_rust import smma, shift, alligator as alligator_rust
 
 AG = namedtuple('AG', ['jaw', 'teeth', 'lips'])
 

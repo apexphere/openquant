@@ -5,7 +5,7 @@ import numpy as np
 from openquant.helpers import get_candle_source, slice_candles
 
 # Import the high-performance Rust implementation
-from openquant_rust import srsi as srsi_rust  # type: ignore
+from jesse_rust import srsi as srsi_rust  # type: ignore
 
 StochasticRSI = namedtuple('StochasticRSI', ['k', 'd'])
 

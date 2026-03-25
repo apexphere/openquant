@@ -5,7 +5,7 @@ import numpy as np
 from openquant.helpers import slice_candles
 
 # Import the high-performance Rust implementation
-from openquant_rust import stoch as stoch_rust  # type: ignore
+from jesse_rust import stoch as stoch_rust  # type: ignore
 
 Stochastic = namedtuple('Stochastic', ['k', 'd'])
 

@@ -2,7 +2,7 @@ import numpy as np
 from typing import Union
 
 from openquant.helpers import get_candle_source, slice_candles
-from openquant_rust import rsi as rsi_rust
+from jesse_rust import rsi as rsi_rust
 
 
 def rsi(candles: np.ndarray, period: int = 14, source_type: str = "close", sequential: bool = False) -> Union[float, np.ndarray]:

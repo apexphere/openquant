@@ -5,7 +5,7 @@ from numba import njit
 
 import openquant.helpers as jh
 from openquant.helpers import slice_candles
-import openquant_rust as jr
+import jesse_rust as jr
 
 
 @njit(cache=True)

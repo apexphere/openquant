@@ -5,7 +5,7 @@ import numpy as np
 from openquant.helpers import slice_candles
 
 # Import the high-performance Rust implementation
-from openquant_rust import dm as dm_rust  # type: ignore
+from jesse_rust import dm as dm_rust  # type: ignore
 
 DM = namedtuple('DM', ['plus', 'minus'])
 

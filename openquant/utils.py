@@ -9,7 +9,7 @@ import openquant.helpers as jh
 from openquant.enums import timeframes
 import statsmodels.api as sm
 
-import openquant_rust
+import jesse_rust
 
 
 def anchor_timeframe(timeframe: str) -> str:

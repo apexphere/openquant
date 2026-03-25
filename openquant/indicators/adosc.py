@@ -2,7 +2,7 @@ from typing import Union
 
 import numpy as np
 from openquant.helpers import slice_candles
-from openquant_rust import adosc as adosc_rust
+from jesse_rust import adosc as adosc_rust
 
 
 def adosc(candles: np.ndarray, fast_period: int = 3, slow_period: int = 10, sequential: bool = False) -> Union[float, np.ndarray]:

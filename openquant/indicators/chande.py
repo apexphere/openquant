@@ -1,7 +1,7 @@
 from typing import Union
 
 import numpy as np
-from openquant_rust import chande as rust_chande
+from jesse_rust import chande as rust_chande
 from openquant.helpers import slice_candles
 
 

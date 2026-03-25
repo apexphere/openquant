@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import numpy as np
-import openquant_rust
+import jesse_rust
 from openquant.helpers import slice_candles
 
 VI = namedtuple('VI', ['plus', 'minus'])

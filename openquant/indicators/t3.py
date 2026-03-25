@@ -22,7 +22,7 @@ def t3(candles: np.ndarray, period: int = 5, vfactor: float = 0, source_type: st
     """
     # Check if jesse_rust is available
     try:
-        import openquant_rust
+        import jesse_rust
         
         if len(candles.shape) == 1:
             # Handle case where source array is passed directly

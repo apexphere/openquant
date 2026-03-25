@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import numpy as np
-from openquant_rust import donchian as rust_donchian
+from jesse_rust import donchian as rust_donchian
 from openquant.helpers import slice_candles
 
 DonchianChannel = namedtuple('DonchianChannel', ['upperband', 'middleband', 'lowerband'])

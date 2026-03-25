@@ -10,7 +10,7 @@ from openquant.services.web import fastapi_app
 
 
 @click.group()
-@click.version_option(get_version("jesse"))
+@click.version_option(get_version("openquant"))
 def cli() -> None:
     """CLI entrypoint for Jesse."""
     pass
@@ -42,7 +42,7 @@ def run() -> None:
  ╚════╝ ╚══════╝╚══════╝╚══════╝╚══════╝
                                         
     """
-    version = get_version("jesse")
+    version = get_version("openquant")
     print(welcome_message)
     print(f"Main Framework Version: {version}")
 

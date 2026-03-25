@@ -1,7 +1,7 @@
 from collections import namedtuple
 import numpy as np
 from openquant.helpers import slice_candles
-import openquant_rust
+import jesse_rust
 
 Wavetrend = namedtuple('Wavetrend', ['wt1', 'wt2', 'wtCrossUp', 'wtCrossDown', 'wtOversold', 'wtOverbought', 'wtVwap'])
 

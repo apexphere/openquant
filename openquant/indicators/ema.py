@@ -3,7 +3,7 @@ from typing import Union
 import numpy as np
 
 from openquant.helpers import get_candle_source, slice_candles
-from openquant_rust import ema as ema_rust
+from jesse_rust import ema as ema_rust
 
 
 def ema(candles: np.ndarray, period: int = 5, source_type: str = "close", sequential: bool = False) -> Union[

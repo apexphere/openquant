@@ -18,7 +18,7 @@ def vwap(
     """
     # Check if jesse_rust is available
     try:
-        import openquant_rust
+        import jesse_rust
         
         candles = slice_candles(candles, sequential)
         
