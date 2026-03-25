@@ -1,7 +1,7 @@
-from jesse.enums import exchanges
-from jesse.models import Position
-from jesse.testing_utils import set_up, single_route_backtest
-from jesse.services import position_service
+from openquant.enums import exchanges
+from openquant.models import Position
+from openquant.testing_utils import set_up, single_route_backtest
+from openquant.services import position_service
 
 
 def test_increase_a_long_position():

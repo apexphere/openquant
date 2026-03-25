@@ -1,6 +1,6 @@
-import jesse.helpers as jh
-import jesse.services.logger as logger
-from jesse.store import store
+import openquant.helpers as jh
+import openquant.services.logger as logger
+from openquant.store import store
 
 
 def set_up():

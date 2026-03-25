@@ -2,9 +2,9 @@ import os
 import arrow
 import numpy as np
 import pytest
-import jesse.helpers as jh
-from jesse.routes import router
-from jesse.enums import exchanges, timeframes
+import openquant.helpers as jh
+from openquant.routes import router
+from openquant.enums import exchanges, timeframes
 
 
 def test_app_currency():
@@ -245,7 +245,7 @@ def test_get_config(monkeypatch):
 
 
 def test_get_strategy_class():
-    from jesse.strategies import Strategy
+    from openquant.strategies import Strategy
     assert issubclass(jh.get_strategy_class("Test01"), Strategy)
 
 
@@ -330,7 +330,7 @@ def test_normalize():
 
 
 def test_now_to_timestamp():
-    from jesse.store import store
+    from openquant.store import store
     assert jh.now_to_timestamp() == store.app.time
 
 

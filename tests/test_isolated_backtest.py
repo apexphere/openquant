@@ -1,8 +1,8 @@
 import pytest
-import jesse.helpers as jh
-from jesse.factories import candles_from_close_prices
-from jesse.strategies import Strategy
-from jesse import research
+import openquant.helpers as jh
+from openquant.factories import candles_from_close_prices
+from openquant.strategies import Strategy
+from openquant import research
 
 
 def test_can_pass_strategy_as_string_in_futures_exchange():
@@ -131,7 +131,7 @@ def test_store_state_app_is_reset_properly_in_isolated_backtest():
     class TestStateApp(Strategy):
         def before(self) -> None:
             if self.index == 0:
-                from jesse.store import store
+                from openquant.store import store
                 assert store.app.daily_balance == [10000]
 
         def should_long(self) -> bool:

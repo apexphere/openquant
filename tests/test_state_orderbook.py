@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from jesse.config import config, reset_config
-from jesse.store import store
+from openquant.config import config, reset_config
+from openquant.store import store
 
 
 def set_up():
@@ -113,7 +113,7 @@ def set_up():
 
 
 def test_fix_array_len():
-    from jesse.store.state_orderbook import _fix_array_len
+    from openquant.store.state_orderbook import _fix_array_len
 
     a = np.array([
         1, 2, 3, 4, 5
@@ -136,7 +136,7 @@ def test_fix_array_len():
     with pytest.raises(ValueError):
         _fix_array_len(c, 3)
 def test_trim_orderbook_list():
-    from jesse.store.state_orderbook import _trim_orderbook_list
+    from openquant.store.state_orderbook import _trim_orderbook_list
 
     trimmed_asks = _trim_orderbook_list(
         [[9414.61, 44.84], [9415.55, 50.31], [9416.49, 49.13], [9417.43, 49.57], [9418.37, 58.71], [9419.31, 40.67],

@@ -1,7 +1,7 @@
 import pytest
 
-from jesse.exceptions import InsufficientMargin
-from jesse.testing_utils import single_route_backtest
+from openquant.exceptions import InsufficientMargin
+from openquant.testing_utils import single_route_backtest
 
 
 def test_negative_balance_validation_for_futures_market():

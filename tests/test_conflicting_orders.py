@@ -1,12 +1,12 @@
-import jesse.helpers as jh
-from jesse.config import reset_config
-from jesse.enums import exchanges
-from jesse.factories import candles_from_close_prices
-from jesse.models import ClosedTrade
-from jesse.routes import router
-from jesse.store import store
-from jesse.config import config
-from jesse.testing_utils import single_route_backtest
+import openquant.helpers as jh
+from openquant.config import reset_config
+from openquant.enums import exchanges
+from openquant.factories import candles_from_close_prices
+from openquant.models import ClosedTrade
+from openquant.routes import router
+from openquant.store import store
+from openquant.config import config
+from openquant.testing_utils import single_route_backtest
 
 
 def get_btc_candles():

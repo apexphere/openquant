@@ -1,10 +1,10 @@
-from jesse.config import config, reset_config
-from jesse.enums import exchanges
-from jesse.factories import fake_order
-from jesse.store import store
-from jesse.routes import router
-from jesse.services import exchange_service, order_service, position_service
-import jesse.helpers as jh
+from openquant.config import config, reset_config
+from openquant.enums import exchanges
+from openquant.factories import fake_order
+from openquant.store import store
+from openquant.routes import router
+from openquant.services import exchange_service, order_service, position_service
+import openquant.helpers as jh
 
 
 def set_up():

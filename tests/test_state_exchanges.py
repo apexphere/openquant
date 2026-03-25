@@ -1,8 +1,8 @@
-from jesse.config import config, reset_config
-from jesse.enums import exchanges
-from jesse.store import store
-from jesse.routes import router
-from jesse.services import exchange_service, order_service, position_service
+from openquant.config import config, reset_config
+from openquant.enums import exchanges
+from openquant.store import store
+from openquant.routes import router
+from openquant.services import exchange_service, order_service, position_service
 
 
 def set_up():

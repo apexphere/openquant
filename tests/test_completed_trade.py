@@ -1,6 +1,6 @@
-from jesse.models import ClosedTrade
-from jesse.store import store
-from jesse.testing_utils import single_route_backtest
+from openquant.models import ClosedTrade
+from openquant.store import store
+from openquant.testing_utils import single_route_backtest
 import numpy as np
 
 

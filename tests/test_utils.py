@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from jesse import utils
+from openquant import utils
 from tests.data.test_candles_indicators import test_candles_19
 
 

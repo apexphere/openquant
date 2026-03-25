@@ -1,12 +1,12 @@
 import pytest
-from jesse.config import config, reset_config
-from jesse.enums import exchanges, timeframes, order_types
-from jesse.exceptions import OrderNotAllowed
-from jesse.models import Position, Exchange
-from jesse.routes import router
-from jesse.services.broker import Broker
-from jesse.services import order_service, exchange_service, position_service
-from jesse.store import store
+from openquant.config import config, reset_config
+from openquant.enums import exchanges, timeframes, order_types
+from openquant.exceptions import OrderNotAllowed
+from openquant.models import Position, Exchange
+from openquant.routes import router
+from openquant.services.broker import Broker
+from openquant.services import order_service, exchange_service, position_service
+from openquant.store import store
 
 
 position: Position = None

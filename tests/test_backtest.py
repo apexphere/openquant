@@ -1,12 +1,12 @@
-import jesse.helpers as jh
-from jesse.config import reset_config
-from jesse.enums import timeframes, exchanges
-from jesse.factories import range_candles
-from jesse.modes import backtest_mode
-from jesse.routes import router
-from jesse.store import store
-from jesse.config import config
-from jesse.services import candle_service
+import openquant.helpers as jh
+from openquant.config import reset_config
+from openquant.enums import timeframes, exchanges
+from openquant.factories import range_candles
+from openquant.modes import backtest_mode
+from openquant.routes import router
+from openquant.store import store
+from openquant.config import config
+from openquant.services import candle_service
 
 
 def test_backtesting_one_route():

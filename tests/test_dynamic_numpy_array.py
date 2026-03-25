@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from jesse.libs import DynamicNumpyArray
+from openquant.libs import DynamicNumpyArray
 
 
 def test_append():

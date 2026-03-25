@@ -1,7 +1,7 @@
 import numpy as np
 
-import jesse.indicators as ta
-from jesse.factories import candles_from_close_prices
+import openquant.indicators as ta
+from openquant.factories import candles_from_close_prices
 import pytest
 from .data.test_candles_indicators import *
 

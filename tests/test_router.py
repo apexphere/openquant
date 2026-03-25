@@ -1,8 +1,8 @@
-from jesse.config import config
-from jesse.enums import exchanges, timeframes
-from jesse.routes import router
-from jesse.store import store
-from jesse.services import exchange_service, order_service, position_service
+from openquant.config import config
+from openquant.enums import exchanges, timeframes
+from openquant.routes import router
+from openquant.store import store
+from openquant.services import exchange_service, order_service, position_service
 
 
 def test_routes():

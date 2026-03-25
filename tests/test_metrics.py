@@ -1,6 +1,6 @@
-from jesse.store import store
-from jesse.testing_utils import single_route_backtest
-from jesse.services import metrics
+from openquant.store import store
+from openquant.testing_utils import single_route_backtest
+from openquant.services import metrics
 import numpy as np
 
 

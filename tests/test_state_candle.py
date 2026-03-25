@@ -1,13 +1,13 @@
 import numpy as np
-from jesse.config import config, reset_config
-from jesse.factories import fake_candle, range_candles
-from jesse.services import candle_service
-from jesse.store import store
+from openquant.config import config, reset_config
+from openquant.factories import fake_candle, range_candles
+from openquant.services import candle_service
+from openquant.store import store
 
 
 def set_up():
     reset_config()
-    from jesse.routes import router
+    from openquant.routes import router
     router.set_routes([
         {'exchange': 'Sandbox', 'symbol': 'BTC-USD', 'timeframe': '1m', 'strategy': 'Test01'}
     ])

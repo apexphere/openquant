@@ -1,5 +1,5 @@
 import pytest
-from jesse import research
+from openquant import research
 
 
 def test_store_candles():

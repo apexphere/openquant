@@ -1,6 +1,6 @@
-from jesse.testing_utils import single_route_backtest
+from openquant.testing_utils import single_route_backtest
 import pytest
-from jesse import exceptions
+from openquant import exceptions
 
 
 def test_should_be_able_to_short_in_spot_mode():

@@ -1,5 +1,5 @@
-import jesse.helpers as jh
-import jesse.modes.import_candles_mode as importer
+import openquant.helpers as jh
+import openquant.modes.import_candles_mode as importer
 from tests.data import test_candles_0
 
 test_object_candles = []

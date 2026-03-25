@@ -1,8 +1,8 @@
 import numpy as np
 
-import jesse.helpers as jh
-from jesse.config import config, reset_config
-from jesse.store import store
+import openquant.helpers as jh
+from openquant.config import config, reset_config
+from openquant.store import store
 
 
 def set_up():
