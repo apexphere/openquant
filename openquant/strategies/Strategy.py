@@ -82,6 +82,13 @@ class Strategy(ABC):
         self.position: Position | None = None
         self.broker = None
 
+        # ── Regime composition state ────────────────────────────────
+        # Every strategy is regime-aware by default. Strategies that don't
+        # override regime_detector() or regimes() get a single "all" regime
+        # with no routing — they behave exactly like a classic Jesse strategy.
+        self._current_regime: str = 'all'
+        self._regime_behaviors: dict | None = None  # lazily loaded from regimes()
+
         self._cached_methods = {}
         self._cached_metrics = {}
         self._current_route_index = None
@@ -91,6 +98,105 @@ class Strategy(ABC):
 
     def candles_pipeline(self) -> Optional[BaseCandlesPipeline]:
         return None
+
+    # ── Regime composition ──────────────────────────────────────────
+    #
+    # Override these methods to make a strategy regime-aware:
+    #   regime_detector()  → return a detector instance (e.g., ADXRegimeDetector)
+    #   regimes()          → return {regime_name: BehaviorClass} mapping
+    #   on_regime_change() → handle transitions (close positions, etc.)
+    #
+    # Strategies that don't override these get a single "all" regime
+    # and behave exactly like a classic single-strategy.
+
+    def regime_detector(self):
+        """Return a regime detector instance, or None for no regime detection.
+
+        Override this to enable regime-aware routing. The detector must have
+        a detect(candles) -> str method.
+
+        Example:
+            def regime_detector(self):
+                from openquant.regime import ADXRegimeDetector
+                return ADXRegimeDetector(sma_period=42, adx_min=25)
+        """
+        return None
+
+    def regimes(self) -> dict:
+        """Return a mapping of regime names to behavior classes.
+
+        Each value should be a class with methods matching StrategyBehavior
+        (should_long, go_long, etc.), or None for flat (no trading).
+
+        Example:
+            def regimes(self):
+                return {
+                    'trending-up': TrendFollowBehavior,
+                    'trending-down': None,  # flat
+                    'ranging': MeanReversionBehavior,
+                }
+        """
+        return {}
+
+    def on_regime_change(self, old_regime: str, new_regime: str) -> None:
+        """Called when the regime changes. Override to handle transitions.
+
+        Default behavior: do nothing (keep existing positions).
+        Common override: self.liquidate() to close positions on switch.
+        """
+        pass
+
+    @property
+    def current_regime(self) -> str:
+        """The currently active regime. 'all' if no detector configured."""
+        return self._current_regime
+
+    def _detect_regime(self) -> str:
+        """Run regime detection and return the regime string.
+
+        Resilient: if the detector throws, keeps the previous regime.
+        """
+        detector = self.regime_detector()
+        if detector is None:
+            return 'all'
+
+        try:
+            candles = self.get_candles(self.exchange, self.symbol,
+                                       getattr(detector, 'timeframe', '1D')
+                                       if hasattr(detector, 'timeframe') else '1D')
+            return detector.detect(candles)
+        except Exception as e:
+            logger.info(f'Regime detection error: {e}. Keeping previous regime: {self._current_regime}')
+            return self._current_regime
+
+    def _get_regime_behavior(self):
+        """Get the behavior instance for the current regime.
+
+        Returns None if: no regimes defined, regime maps to None (flat),
+        or regime not found in mapping (unknown → flat).
+        """
+        if self._regime_behaviors is None:
+            mapping = self.regimes()
+            if mapping:
+                # Instantiate behavior classes once and cache
+                self._regime_behaviors = {}
+                for regime_name, behavior_cls in mapping.items():
+                    if behavior_cls is None:
+                        self._regime_behaviors[regime_name] = None
+                    else:
+                        self._regime_behaviors[regime_name] = behavior_cls()
+            else:
+                self._regime_behaviors = {}
+
+        if not self._regime_behaviors:
+            return None  # No regimes defined — classic strategy mode
+
+        behavior = self._regime_behaviors.get(self._current_regime)
+        if behavior is None and self._current_regime not in self._regime_behaviors:
+            # Unknown regime — go flat (resilient default), log warning
+            logger.info(f'Unknown regime "{self._current_regime}" — going flat. '
+                       f'Known regimes: {list(self._regime_behaviors.keys())}')
+        return behavior
 
     def record_features(self, features_dict: dict) -> None:
         """
@@ -552,7 +658,12 @@ class Strategy(ABC):
         return ''
 
     def _execute_long(self) -> None:
-        self.go_long()
+        # Route through regime behavior if one exists
+        behavior = self._get_regime_behavior()
+        if behavior is not None and hasattr(behavior, 'go_long'):
+            behavior.go_long(self)
+        else:
+            self.go_long()
 
         # validation
         if self.buy is None:
@@ -638,7 +749,12 @@ class Strategy(ABC):
                 raise ValueError(f'Invalid order price: o[1]:{o[1]}, self.price:{self.price}')
 
     def _execute_short(self) -> None:
-        self.go_short()
+        # Route through regime behavior if one exists
+        behavior = self._get_regime_behavior()
+        if behavior is not None and hasattr(behavior, 'go_short'):
+            behavior.go_short(self)
+        else:
+            self.go_short()
 
         # validation
         if self.sell is None:
@@ -834,7 +950,12 @@ class Strategy(ABC):
         if self.position.is_close:
             return
 
-        self.update_position()
+        # Route through regime behavior if one exists
+        behavior = self._get_regime_behavior()
+        if behavior is not None and hasattr(behavior, 'update_position'):
+            behavior.update_position(self)
+        else:
+            self.update_position()
 
         self._detect_and_handle_entry_and_exit_modifications()
 
@@ -994,6 +1115,13 @@ class Strategy(ABC):
         if not self._is_initiated:
             self._is_initiated = True
 
+        # ── Regime detection (runs every tick) ──────────────────────
+        new_regime = self._detect_regime()
+        if new_regime != self._current_regime:
+            old_regime = self._current_regime
+            self._current_regime = new_regime
+            self.on_regime_change(old_regime, new_regime)
+
         self._wait_until_executing_orders_are_fully_handled()
 
         if jh.is_live() and jh.is_debuggable('strategy_execution'):
@@ -1046,24 +1174,36 @@ class Strategy(ABC):
         if self.position.is_close and self.entry_orders == []:
             self._reset()
 
-            should_short = self.should_short()
+            # Route through regime behavior if one exists
+            behavior = self._get_regime_behavior()
+            if behavior is not None:
+                # Behavior exists — delegate entry decisions
+                _should_short = behavior.should_short(self) if hasattr(behavior, 'should_short') else False
+                _should_long = behavior.should_long(self) if hasattr(behavior, 'should_long') else False
+            elif self._regime_behaviors:
+                # Regimes defined but current regime maps to None → flat (no trading)
+                _should_short = False
+                _should_long = False
+            else:
+                # No regimes defined — classic strategy mode
+                _should_short = self.should_short()
+                _should_long = self.should_long()
+
             # validate that should_short is not True if the exchange_type is spot
-            if self.exchange_type == 'spot' and should_short:
+            if self.exchange_type == 'spot' and _should_short:
                 raise exceptions.InvalidStrategy(
                     'should_short cannot be True if the exchange type is "spot".'
                 )
 
-            should_long = self.should_long()
-
             # should_short and should_long cannot be True at the same time
-            if should_short and should_long:
+            if _should_short and _should_long:
                 raise exceptions.ConflictingRules(
                     'should_short and should_long should not be true at the same time.'
                 )
 
-            if should_long:
+            if _should_long:
                 self._execute_long()
-            elif should_short:
+            elif _should_short:
                 self._execute_short()
 
     def _have_any_pending_market_exit_orders(self) -> bool:
