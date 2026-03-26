@@ -1,6 +1,6 @@
-"""Multi-condition backtest runner for RegimeRouter.
+"""Multi-condition backtest runner.
 
-Runs RegimeRouter across multiple market conditions and generates a
+Runs a strategy across multiple market conditions and generates a
 formatted comparison report. Results are saved to results/{timestamp}/.
 
 Usage:
@@ -8,8 +8,11 @@ Usage:
     #   docker compose up -d postgres redis
     .venv/bin/python scripts/run_backtests.py
 
+    # Run a specific strategy:
+    .venv/bin/python scripts/run_backtests.py --strategy TrendBreak --timeframe 4h
+
     # Custom conditions:
-    .venv/bin/python scripts/run_backtests.py --conditions trending ranging
+    .venv/bin/python scripts/run_backtests.py --conditions period_1 period_2
 
     # Custom exchange/symbol:
     .venv/bin/python scripts/run_backtests.py --exchange "Bybit USDT Perpetual" --symbol BTC-USDT
@@ -100,6 +103,27 @@ def setup_config(exchange: str, balance: float, fee: float) -> dict:
     }
 
 
+def _data_routes_for_strategy(strategy: str, symbol: str, timeframe: str) -> list:
+    """Return extra data routes needed by a strategy.
+
+    Strategies that call get_candles() for timeframes other than their
+    primary trading timeframe need those timeframes listed as data routes.
+    """
+    # Collect all extra timeframes the strategy needs (beyond its own)
+    extra_timeframes = set()
+
+    strategy_needs = {
+        'RegimeRouter': {'1D', '4h'},
+        'TrendBreak': {'1D', '4h'},
+    }
+    extra_timeframes = strategy_needs.get(strategy, {'1D', '4h'})
+
+    # Remove the primary timeframe if present (it's already the main route)
+    extra_timeframes.discard(timeframe)
+
+    return [{'symbol': symbol, 'timeframe': tf} for tf in sorted(extra_timeframes)]
+
+
 def run_single_backtest(
     condition_name: str,
     condition: dict,
@@ -141,11 +165,9 @@ def run_single_backtest(
         {'symbol': symbol, 'timeframe': timeframe, 'strategy': strategy}
     ]
 
-    # RegimeRouter needs 1D and 4h candles as data routes
-    data_routes = [
-        {'symbol': symbol, 'timeframe': '1D'},
-        {'symbol': symbol, 'timeframe': '4h'},
-    ]
+    # Provide extra timeframes that strategies may reference via get_candles().
+    # Both RegimeRouter and TrendBreak need 1D and 4h data.
+    data_routes = _data_routes_for_strategy(strategy, symbol, timeframe)
 
     # client_id must be a valid UUID (DB schema constraint)
     client_id = str(uuid.uuid4())
@@ -252,7 +274,7 @@ def _print_condition_summary(summary: dict) -> None:
 def generate_report(results: list, config_info: dict) -> str:
     """Generate a formatted comparison report."""
     lines = []
-    lines.append('# RegimeRouter Backtest Report')
+    lines.append(f'# {config_info["strategy"]} Backtest Report')
     lines.append(f'Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}')
     lines.append(f'Strategy: {config_info["strategy"]}')
     lines.append(f'Exchange: {config_info["exchange"]} | Symbol: {config_info["symbol"]} | '
@@ -355,7 +377,7 @@ def save_results(results: list, report_text: str, config_info: dict) -> Path:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Run RegimeRouter backtests across market conditions')
+    parser = argparse.ArgumentParser(description='Run strategy backtests across market conditions')
     parser.add_argument('--conditions', nargs='+', default=list(MARKET_CONDITIONS.keys()),
                         choices=list(MARKET_CONDITIONS.keys()),
                         help='Market conditions to test')
@@ -378,7 +400,7 @@ def main():
         'run_date': datetime.now(timezone.utc).isoformat(),
     }
 
-    print(f'RegimeRouter Multi-Condition Backtest')
+    print(f'{args.strategy} Multi-Condition Backtest')
     print(f'Exchange: {args.exchange} | Symbol: {args.symbol}')
     print(f'Conditions: {", ".join(args.conditions)}')
 
