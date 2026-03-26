@@ -155,3 +155,5 @@ pyrightconfig.json
 openquant/lsp/node/
 openquant/lsp/node_modules/
 openquant/lsp/bin/
+
+storage/temp/
