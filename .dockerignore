@@ -23,3 +23,6 @@ Dockerfile
 docker-compose.yml
 .idea
 venv
+.env
+.env.example
+.venv

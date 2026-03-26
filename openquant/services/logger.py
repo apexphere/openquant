@@ -1,8 +1,12 @@
 import openquant.helpers as jh
 from openquant.services.notifier import notify
-from openquant.services.redis import sync_publish
 import logging
 import os
+
+
+def _sync_publish(*args, **kwargs):
+    from openquant.services.redis import sync_publish
+    return sync_publish(*args, **kwargs)
 
 # store loggers in the dict because we might want to add more later
 LOGGERS = {}
@@ -63,7 +67,7 @@ def info(msg: str, send_notification=False, webhook=None) -> None:
     store.logs.info.append(log_dict)
 
     if jh.is_live():
-        sync_publish('info_log', log_dict)
+        _sync_publish('info_log', log_dict)
 
     if jh.is_live() or (jh.is_backtesting() and jh.is_debugging()):
         msg = f"[INFO | {jh.timestamp_to_time(jh.now_to_timestamp())[:19]}] {msg}"
@@ -99,7 +103,7 @@ def error(msg: str, send_notification=True) -> None:
     if jh.is_live() and jh.get_config('env.notifications.events.errors', True) and send_notification:
         notify(f'ERROR:\n{msg}')
     if (jh.is_backtesting() and jh.is_debugging()) or jh.is_live():
-        sync_publish('error_log', log_dict)
+        _sync_publish('error_log', log_dict)
 
     store.logs.errors.append(log_dict)
 
@@ -170,7 +174,7 @@ def log_optimize_mode(message, session_id: str):
             print(f"Warning: Failed to write to optimize mode log file {log_file}: {e}")
 
     # also, publish to redis
-    sync_publish('log', {
+    _sync_publish('log', {
         'id': jh.generate_unique_id(),
         'timestamp': jh.now_to_timestamp(),
         'message': message
@@ -212,7 +216,7 @@ def log_monte_carlo(message, session_id: str):
             print(f"Warning: Failed to write to monte carlo log file {log_file}: {e}")
 
     # Always publish to redis for real-time updates
-    sync_publish('log', {
+    _sync_publish('log', {
         'id': jh.generate_unique_id(),
         'timestamp': jh.now_to_timestamp(),
         'message': message
@@ -222,7 +226,7 @@ def log_monte_carlo(message, session_id: str):
 def broadcast_error_without_logging(msg: str):
     msg = str(msg)
 
-    sync_publish('error_log', {
+    _sync_publish('error_log', {
         'id': jh.generate_unique_id(),
         'timestamp': jh.now_to_timestamp(),
         'message': msg

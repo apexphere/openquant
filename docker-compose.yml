@@ -39,6 +39,8 @@ services:
     volumes:
       - ./strategies:/jesse-docker/strategies
       - ./storage:/jesse-docker/storage
+    working_dir: /jesse-docker
+    command: jesse run
 
 volumes:
   pgdata:
