@@ -150,3 +150,8 @@ testing-*.py
 # lsp
 jesse/lsp/
 pyrightconfig.json
+
+# LSP binaries
+openquant/lsp/node/
+openquant/lsp/node_modules/
+openquant/lsp/bin/
