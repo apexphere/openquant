@@ -1,11 +1,7 @@
 # TODOS
 
-## P2: Create CLAUDE.md
-**What:** Create project-level CLAUDE.md documenting structure, conventions, strategy overview, and Phase 1 roadmap.
-**Why:** Every AI session starts without project context. A CLAUDE.md would make all future sessions faster and more accurate.
-**Effort:** S (human: ~2 hours / CC: ~15 min)
-**Depends on:** Nothing
-**Added:** 2026-03-26 via /plan-ceo-review
+## ~~P2: Create CLAUDE.md~~ DONE
+Completed 2026-03-26. CLAUDE.md created with project structure, strategy development workflow, Phase A script documentation, common failure modes, and technical gotchas.
 
 ## P2: Thread Safety Audit for Store
 **What:** Audit Store dict mutations for thread safety. Add locks where WebSocket callbacks and main thread share state.
