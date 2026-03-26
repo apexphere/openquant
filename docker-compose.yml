@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: openquant
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: openquant_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  openquant:
+    build: .
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_NAME: openquant_db
+      POSTGRES_PORT: 5432
+      POSTGRES_USERNAME: openquant
+      POSTGRES_PASSWORD: password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_PASSWORD: ""
+      APP_PORT: 9000
+      PASSWORD: openquant123
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./strategies:/jesse-docker/strategies
+      - ./storage:/jesse-docker/storage
+
+volumes:
+  pgdata:
