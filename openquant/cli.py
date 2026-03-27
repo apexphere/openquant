@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 import json
@@ -334,6 +335,89 @@ def optimize(strategy, training_start, training_finish, testing_start,
 
     _api_post('/optimization', payload, server_url, token)
     click.echo('Optimization started. Check the dashboard for progress.')
+
+
+@cli.command('create-composite')
+@click.argument('name')
+def create_composite(name) -> None:
+    """Scaffold a new YAML-configured composite strategy.
+
+    Creates strategies/NAME/__init__.py and strategies/NAME/config.yaml
+    with a working template.
+
+    Example:
+
+        jesse create-composite MyTrendRanger
+    """
+    strategy_dir = os.path.join('strategies', name)
+    if os.path.exists(strategy_dir):
+        click.echo(f'Error: {strategy_dir} already exists.')
+        sys.exit(1)
+
+    os.makedirs(strategy_dir)
+
+    # Write __init__.py
+    init_content = f'''from openquant.regime.composite import CompositeStrategy
+
+
+class {name}(CompositeStrategy):
+    config_file = 'config.yaml'
+'''
+    with open(os.path.join(strategy_dir, '__init__.py'), 'w') as f:
+        f.write(init_content)
+
+    # Write config.yaml template
+    config_content = f'''# {name} — composite strategy configuration
+# Docs: see CLAUDE.md "Regime-Aware Composition" section
+
+detector:
+  type: adx
+  timeframe: 1D
+  params:
+    sma_period: 42
+    adx_period: 14
+    adx_min: 25
+    confirm_bars: 3
+
+regimes:
+  trending-up:
+    behavior: momentum_rotation
+  trending-down: null              # flat — no trading
+  ranging-up:
+    behavior: bb_mean_reversion
+  ranging-down:
+    behavior: bb_mean_reversion
+  cold-start: null
+
+params:
+  # Risk management
+  risk_pct: 0.05
+  sl_pct: 0.05
+  tp_pct: 0.10
+  trail_pct: 0.02
+  # BB mean reversion
+  bb_window: 15
+  bb_mult: 2.5
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+  vol_mult: 1.2
+  # Momentum rotation
+  momentum_lookback: 42
+
+transitions:
+  on_switch: close_all             # close_all | close_opposite | hold
+  cooldown_bars: 8
+
+data_routes: [1D, 4h]
+'''
+    with open(os.path.join(strategy_dir, 'config.yaml'), 'w') as f:
+        f.write(config_content)
+
+    click.echo(f'Created {strategy_dir}/')
+    click.echo(f'  __init__.py  — 3-line boilerplate')
+    click.echo(f'  config.yaml  — edit this to define your strategy')
+    click.echo(f'\nBacktest: jesse backtest {name} --start 2025-06-01 --finish 2025-09-30')
 
 
 @cli.command()
