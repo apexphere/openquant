@@ -264,27 +264,9 @@ def backtest(strategy, start, finish, exchange, symbol, timeframe,
     click.echo(f'Backtesting {strategy} on {symbol} ({timeframe})')
     click.echo(f'Period: {start} → {finish} | Balance: ${balance:,.0f} | Fee: {fee*100:.2f}%')
 
-    # Submit backtest (creates the session in DB)
+    # Submit backtest — session state (strategy name, exchange, symbol)
+    # is saved inside the backtest mode, not here
     _api_post('/backtest', payload, server_url, token)
-
-    # Save state so the dashboard shows strategy/exchange/symbol in the listing
-    state = {
-        'form': {
-            'start_date': start,
-            'finish_date': finish,
-            'debug_mode': False,
-            'export_chart': True,
-            'export_tradingview': False,
-            'export_csv': False,
-            'export_json': True,
-            'fast_mode': False,
-            'benchmark': True,
-            'exchange': exchange,
-            'routes': [{'symbol': symbol, 'timeframe': timeframe, 'strategy': strategy}],
-            'data_routes': dr,
-        }
-    }
-    _api_post('/backtest/update-state', {'id': session_id, 'state': state}, server_url, token)
 
     click.echo(f'Submitted. Session ID: {session_id}')
     click.echo(f'Check progress:  jesse status')

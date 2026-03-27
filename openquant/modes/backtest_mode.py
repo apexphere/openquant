@@ -122,11 +122,24 @@ def _execute_backtest(
 
     # Store backtest session in database (only for UI dashboard, not for CLI/research)
     if not jh.should_execute_silently():
-        from openquant.models.BacktestSession import store_backtest_session
+        from openquant.models.BacktestSession import store_backtest_session, update_backtest_session_state
         store_backtest_session(
             id=client_id,
             status='running'
         )
+        # Save route info so dashboard shows strategy name, exchange, symbol
+        state = {
+            'form': {
+                'exchange': exchange,
+                'routes': [{'symbol': r['symbol'], 'timeframe': r['timeframe'],
+                            'strategy': r['strategy']} for r in routes],
+                'data_routes': [{'symbol': r['symbol'], 'timeframe': r['timeframe']}
+                                for r in data_routes],
+                'start_date': start_date,
+                'finish_date': finish_date,
+            }
+        }
+        update_backtest_session_state(client_id, state)
 
     # load historical candles
     if candles is None:

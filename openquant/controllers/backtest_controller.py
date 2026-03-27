@@ -33,11 +33,6 @@ def backtest(request_json: BacktestRequestJson, authorization: Optional[str] = H
 
     jh.validate_cwd()
 
-    # Create session row immediately so the dashboard shows strategy name
-    # before the child process starts. The child process will update it.
-    from openquant.models.BacktestSession import store_backtest_session
-    store_backtest_session(id=request_json.id, status='running')
-
     process_manager.add_task(
         run_backtest,
         request_json.id,
