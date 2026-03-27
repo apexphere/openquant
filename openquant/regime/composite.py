@@ -24,11 +24,15 @@ import openquant.services.logger as logger
 
 _DETECTOR_REGISTRY = {
     'adx': 'openquant.regime.adx_detector.ADXRegimeDetector',
+    'volatility': 'openquant.regime.volatility_detector.VolatilityRegimeDetector',
+    'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
 }
 
 _BEHAVIOR_REGISTRY = {
     'bb_mean_reversion': 'openquant.regime.behaviors.bb_mean_reversion.BBMeanReversionBehavior',
     'momentum_rotation': 'openquant.regime.behaviors.momentum_rotation.MomentumRotationBehavior',
+    'trend_follow': 'openquant.regime.behaviors.trend_follow.TrendFollowBehavior',
+    'breakout': 'openquant.regime.behaviors.breakout.BreakoutBehavior',
 }
 
 
