@@ -61,10 +61,11 @@ def _api_post(path: str, data: dict = None, server_url: str = None,
 
 
 def _wait_for_session(session_id: str, server_url: str, token: str,
-                       poll_interval: float = 2.0, timeout: float = 300) -> dict:
-    """Poll until a backtest/optimization session finishes."""
+                       poll_interval: float = 3.0, timeout: float = 600) -> dict:
+    """Poll until a backtest/optimization session finishes, showing progress."""
     import requests
     elapsed = 0.0
+    last_status = ''
     while elapsed < timeout:
         time.sleep(poll_interval)
         elapsed += poll_interval
@@ -76,10 +77,17 @@ def _wait_for_session(session_id: str, server_url: str, token: str,
             session = data.get('session', {})
             status = session.get('status', 'unknown')
             if status in ('finished', 'stopped', 'terminated'):
+                click.echo('')  # newline after progress dots
                 return session
+            # Show progress indicator
+            if status != last_status:
+                click.echo(f'\r  [{status}] {int(elapsed)}s...', nl=False)
+                last_status = status
+            else:
+                click.echo('.', nl=False)
         except Exception:
             pass
-    click.echo(f'Timeout after {timeout}s waiting for session {session_id}')
+    click.echo(f'\nTimeout after {timeout}s waiting for session {session_id}')
     return {}
 
 
@@ -256,6 +264,9 @@ def backtest(strategy, start, finish, exchange, symbol, timeframe,
     click.echo(f'Backtesting {strategy} on {symbol} ({timeframe})')
     click.echo(f'Period: {start} → {finish} | Balance: ${balance:,.0f} | Fee: {fee*100:.2f}%')
 
+    # Submit backtest (creates the session in DB)
+    _api_post('/backtest', payload, server_url, token)
+
     # Save state so the dashboard shows strategy/exchange/symbol in the listing
     state = {
         'form': {
@@ -275,31 +286,35 @@ def backtest(strategy, start, finish, exchange, symbol, timeframe,
     }
     _api_post('/backtest/update-state', {'id': session_id, 'state': state}, server_url, token)
 
-    _api_post('/backtest', payload, server_url, token)
+    click.echo(f'Submitted. Session ID: {session_id}')
+    click.echo(f'Check progress:  jesse status')
+    click.echo(f'View results:    jesse results {session_id}')
 
-    click.echo('Running...', nl=False)
-    session = _wait_for_session(session_id, server_url, token)
-    click.echo(' done.')
 
-    status = session.get('status', 'unknown')
-    if status == 'stopped' and session.get('exception'):
-        click.echo(f'Error: {session["exception"][:500]}')
-        sys.exit(1)
+@cli.command('cancel')
+@click.argument('session_id')
+@click.option('--type', 'session_type', default='backtest',
+              type=click.Choice(['backtest', 'optimization']),
+              help='Session type to cancel')
+def cancel(session_id, session_type) -> None:
+    """Cancel a running backtest or optimization.
 
-    # Update state with results so the dashboard right panel works
-    _save_session_results_state(
-        session_id, session, strategy, exchange, symbol, timeframe,
-        start, finish, dr, server_url, token
-    )
+    Examples:
 
-    metrics = session.get('metrics')
-    if json_output:
-        click.echo(json.dumps(session, indent=2, default=str))
-    elif metrics:
-        click.echo(f'\n{_format_metrics(metrics)}')
-        click.echo(f'\n  Session ID: {session_id}')
+        jesse cancel abc123-def456
+
+        jesse cancel abc123-def456 --type optimization
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    if session_type == 'optimization':
+        endpoint = '/optimization/terminate'
     else:
-        click.echo('No trades executed in this period.')
+        endpoint = '/backtest/cancel'
+
+    data = _api_post(endpoint, {'id': session_id}, server_url, token)
+    click.echo(data.get('message', f'Cancelled {session_id}'))
 
 
 @cli.command()
@@ -332,13 +347,16 @@ def results(session_id, limit, json_output) -> None:
         else:
             click.echo(f'Session: {session_id}')
             click.echo(f'Status:  {session.get("status", "unknown")}')
-            click.echo(f'\n{_format_metrics(session.get("metrics"))}')
-            trades = session.get('trades', [])
-            if trades:
-                click.echo(f'\n  Trade count: {len(trades)}')
-            regime_periods = session.get('regime_periods')
-            if regime_periods:
-                click.echo(f'\n{_format_regime_periods(regime_periods)}')
+            if session.get('status') == 'stopped' and session.get('exception'):
+                click.echo(f'\n  Error: {session["exception"][:300]}')
+            else:
+                click.echo(f'\n{_format_metrics(session.get("metrics"))}')
+                trades = session.get('trades', [])
+                if trades:
+                    click.echo(f'\n  Trade count: {len(trades)}')
+                regime_periods = session.get('regime_periods')
+                if regime_periods:
+                    click.echo(f'\n{_format_regime_periods(regime_periods)}')
     else:
         # List recent sessions
         data = _api_post('/backtest/sessions', {'limit': limit}, server_url, token)
@@ -433,6 +451,60 @@ def optimize(strategy, training_start, training_finish, testing_start,
 
     _api_post('/optimization', payload, server_url, token)
     click.echo('Optimization started. Check the dashboard for progress.')
+
+
+@cli.command('status')
+def status() -> None:
+    """Show running backtests and optimizations.
+
+    Example:
+
+        jesse status
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    # Check running backtests
+    data = _api_post('/backtest/sessions', {'limit': 20}, server_url, token)
+    sessions = data.get('sessions', data.get('data', []))
+    running_bt = [s for s in sessions if s.get('status') == 'running']
+
+    # Check running optimizations
+    data = _api_post('/optimization/sessions', {'limit': 10}, server_url, token)
+    opt_sessions = data.get('sessions', [])
+    running_opt = [s for s in opt_sessions if s.get('status') == 'running']
+
+    if not running_bt and not running_opt:
+        click.echo('No running jobs.')
+        return
+
+    if running_bt:
+        click.echo(f'Backtests ({len(running_bt)} running):')
+        click.echo(f'  {"ID":<38} {"Updated"}')
+        click.echo(f'  {"-" * 55}')
+        from datetime import datetime, timezone
+        for s in running_bt:
+            updated_raw = s.get('updated_at', 0)
+            if isinstance(updated_raw, (int, float)) and updated_raw > 1e12:
+                updated_raw = updated_raw / 1000
+            try:
+                updated = datetime.fromtimestamp(updated_raw).strftime('%H:%M:%S')
+            except Exception:
+                updated = '?'
+            click.echo(f'  {s["id"]:<38} {updated}')
+        click.echo()
+
+    if running_opt:
+        click.echo(f'Optimizations ({len(running_opt)} running):')
+        click.echo(f'  {"ID":<38} {"Progress":>10} {"Best":>8}')
+        click.echo(f'  {"-" * 60}')
+        for s in running_opt:
+            completed = s.get('completed_trials', 0)
+            total = s.get('total_trials', 0)
+            best = s.get('best_score')
+            best_str = f'{best:.4f}' if best is not None else 'N/A'
+            progress = f'{completed}/{total}'
+            click.echo(f'  {s["id"]:<38} {progress:>10} {best_str:>8}')
 
 
 @cli.command('optimize-results')

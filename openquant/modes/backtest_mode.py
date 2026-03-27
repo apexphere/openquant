@@ -136,9 +136,13 @@ def _execute_backtest(
                 jh.date_to_timestamp(finish_date)
             )
             _handle_warmup_candles(warmup_candles, start_date)
-        except exceptions.CandlesNotFound as e:
-            _handle_sync_no_candles(e, start_date, exchange)
-        except exceptions.CandleNotFoundInDatabase as e:
+        except (exceptions.CandlesNotFound, exceptions.CandleNotFoundInDatabase) as e:
+            # Store the error and mark session as stopped so it doesn't stay "running" forever
+            if not jh.should_execute_silently():
+                import traceback as tb
+                from openquant.models.BacktestSession import store_backtest_session_exception, update_backtest_session_status
+                store_backtest_session_exception(client_id, str(e), tb.format_exc())
+                update_backtest_session_status(client_id, 'stopped')
             _handle_sync_no_candles(e, start_date, exchange)
 
     if not jh.should_execute_silently():
