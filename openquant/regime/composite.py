@@ -15,6 +15,7 @@ import yaml
 from importlib import import_module
 
 from openquant.strategies import Strategy
+import openquant.helpers as jh
 import openquant.services.logger as logger
 
 
@@ -32,7 +33,13 @@ _BEHAVIOR_REGISTRY = {
     'bb_mean_reversion': 'openquant.regime.behaviors.bb_mean_reversion.BBMeanReversionBehavior',
     'momentum_rotation': 'openquant.regime.behaviors.momentum_rotation.MomentumRotationBehavior',
     'trend_follow': 'openquant.regime.behaviors.trend_follow.TrendFollowBehavior',
+    'trend_pullback': 'openquant.regime.behaviors.trend_pullback.TrendPullbackBehavior',
+    'trend_pullback_short': 'openquant.regime.behaviors.trend_pullback_short.TrendPullbackShortBehavior',
     'breakout': 'openquant.regime.behaviors.breakout.BreakoutBehavior',
+}
+
+_FILTER_REGISTRY = {
+    'candle_energy': 'openquant.regime.filters.candle_energy.CandleEnergyFilter',
 }
 
 
@@ -56,6 +63,27 @@ def _resolve_class(name: str, registry: dict):
         return getattr(module, class_name)
     except (ImportError, AttributeError) as e:
         raise ValueError(f'Cannot import "{dotted_path}": {e}') from e
+
+
+def _load_config_for_class(cls) -> dict:
+    """Load YAML config using the class definition (no instance needed).
+
+    Used by the optimizer which calls hyperparameters(None) to discover
+    parameter ranges without a live strategy instance.
+    """
+    config_file = getattr(cls, 'config_file', 'config.yaml')
+    import sys
+    module = sys.modules[cls.__module__]
+    strategy_dir = os.path.dirname(os.path.abspath(module.__file__))
+    config_path = os.path.join(strategy_dir, config_file)
+
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f'Composite strategy config not found: {config_path}. '
+            f'Create a config.yaml in your strategy directory.')
+
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
 
 
 def _load_config(strategy_instance) -> dict:
@@ -100,6 +128,7 @@ class CompositeStrategy(Strategy):
         self._detector = None
         self._config = None
         self._config_loaded = False
+        self._fixed_params_injected = False
 
     def _ensure_config(self) -> dict:
         """Lazy-load the YAML config on first access."""
@@ -108,9 +137,29 @@ class CompositeStrategy(Strategy):
             self._config_loaded = True
         return self._config
 
+    def _inject_fixed_params(self) -> None:
+        """Merge non-numeric YAML params into hp.
+
+        The optimizer only sets tunable (numeric) params on strategy.hp.
+        Fixed params (strings, bools) from the YAML config must be injected
+        so behaviors can read them via strategy.hp.get('pb_timeframe', ...).
+        """
+        if self._fixed_params_injected or self.hp is None:
+            return
+        self._fixed_params_injected = True
+        config = self._ensure_config()
+        for name, value in config.get('params', {}).items():
+            if isinstance(value, dict):
+                continue  # tunable param with min/max — already in hp
+            if not isinstance(value, (int, float)):
+                # Fixed param (string, bool) — inject if not already set
+                if name not in self.hp:
+                    self.hp[name] = value
+
     # ── Regime composition (overrides from Strategy) ────────────────
 
     def regime_detector(self):
+        self._inject_fixed_params()
         if self.hp is None:
             return None
 
@@ -180,7 +229,17 @@ class CompositeStrategy(Strategy):
     # ── Hyperparameters from YAML ───────────────────────────────────
 
     def hyperparameters(self):
-        config = self._ensure_config()
+        # Jesse's optimizer calls strategy_class.hyperparameters(None) to
+        # discover parameter ranges without a live instance. Load config
+        # from the class definition in that case.
+        if self is None:
+            # Find the actual subclass by walking the MRO of whoever
+            # defined config_file. The optimizer imported the class already.
+            from openquant.routes import router
+            strategy_class = jh.get_strategy_class(router.routes[0].strategy_name)
+            config = _load_config_for_class(strategy_class)
+        else:
+            config = self._ensure_config()
         params = config.get('params', {})
 
         hp_list = []
@@ -195,15 +254,55 @@ class CompositeStrategy(Strategy):
                     'default': value.get('default', 0),
                 })
             else:
-                # Simple value — use as default, derive type, set narrow range
+                # Simple value — skip non-numeric (strings, bools are fixed config)
+                if not isinstance(value, (int, float)):
+                    continue
                 hp_list.append({
                     'name': name,
                     'type': type(value),
-                    'min': value * 0.5 if isinstance(value, (int, float)) else value,
-                    'max': value * 2.0 if isinstance(value, (int, float)) else value,
+                    'min': value * 0.5,
+                    'max': value * 2.0,
                     'default': value,
                 })
         return hp_list
+
+    # ── Quality filters from YAML ────────────────────────────────────
+
+    def quality_filters(self) -> list:
+        config = self._ensure_config()
+        filters_cfg = config.get('quality_filters', [])
+        if not filters_cfg:
+            return []
+
+        result = []
+        for filter_def in filters_cfg:
+            if isinstance(filter_def, str):
+                filter_type = filter_def
+                params = {}
+                enabled = True
+            elif isinstance(filter_def, dict):
+                filter_type = filter_def.get('type')
+                params = dict(filter_def.get('params', {}))
+                enabled = filter_def.get('enabled', True)
+            else:
+                continue
+
+            if not enabled:
+                continue
+
+            FilterClass = _resolve_class(filter_type, _FILTER_REGISTRY)
+            result.append(FilterClass(**params))
+        return result
+
+    @property
+    def min_quality(self) -> float:
+        config = self._ensure_config()
+        return float(config.get('min_quality', 0))
+
+    @property
+    def score_aggregation(self) -> str:
+        config = self._ensure_config()
+        return config.get('score_aggregation', 'min')
 
     # ── Fallback methods (when no behavior is active) ───────────────
 

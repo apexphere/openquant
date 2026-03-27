@@ -88,6 +88,9 @@ class Strategy(ABC):
         # with no routing — they behave exactly like a classic Jesse strategy.
         self._current_regime: str = 'all'
         self._regime_behaviors: dict | None = None  # lazily loaded from regimes()
+        self._regime_log: list = []  # [{timestamp, regime}] for dashboard overlay
+        self._quality_filters: list | None = None  # lazily loaded from quality_filters()
+        self._last_quality_score: float | None = None  # most recent aggregate score
 
         self._cached_methods = {}
         self._cached_metrics = {}
@@ -151,6 +154,11 @@ class Strategy(ABC):
         """The currently active regime. 'all' if no detector configured."""
         return self._current_regime
 
+    @property
+    def regime_log(self) -> list:
+        """List of regime transitions: [{timestamp, regime}, ...]"""
+        return self._regime_log
+
     def _detect_regime(self) -> str:
         """Run regime detection and return the regime string.
 
@@ -197,6 +205,97 @@ class Strategy(ABC):
             logger.info(f'Unknown regime "{self._current_regime}" — going flat. '
                        f'Known regimes: {list(self._regime_behaviors.keys())}')
         return behavior
+
+    # ── Quality filter composition ─────────────────────────────────
+    #
+    # Override quality_filters() to add quality gates before entry.
+    # Filters score the current regime 0-10. If the aggregate score
+    # falls below min_quality, the framework skips calling should_long
+    # / should_short entirely.
+
+    def quality_filters(self) -> list:
+        """Return a list of QualityFilter instances.
+
+        Override to add quality gates. Default: no filters (all entries pass).
+
+        Example:
+            def quality_filters(self):
+                from openquant.regime.filters.candle_energy import CandleEnergyFilter
+                return [CandleEnergyFilter(lookback=20)]
+        """
+        return []
+
+    @property
+    def min_quality(self) -> float:
+        """Minimum quality score for entry. Default 0 (no filtering)."""
+        return 0
+
+    @property
+    def score_aggregation(self) -> str:
+        """How to aggregate multiple filter scores: 'min' or 'mean'."""
+        return 'min'
+
+    @property
+    def last_quality_score(self) -> float | None:
+        """Most recent aggregate quality score. None if no filters ran."""
+        return self._last_quality_score
+
+    def _init_quality_filters(self) -> list:
+        """Lazy-load and cache quality filter instances."""
+        if self._quality_filters is None:
+            self._quality_filters = self.quality_filters()
+            if not self._quality_filters and self.min_quality > 0:
+                logger.info('min_quality is set but no quality_filters configured — gate will always pass')
+        return self._quality_filters
+
+    def _check_quality_gate(self) -> bool:
+        """Run quality filters and return True if entry is allowed.
+
+        Resilient: if a filter throws, it's excluded from aggregation.
+        If all filters return None (warmup) or no filters exist, gate passes.
+        """
+        from openquant.regime.quality import aggregate_scores
+        import math
+
+        filters = self._init_quality_filters()
+        if not filters:
+            return True
+
+        scores = []
+        debug_parts = []
+        for f in filters:
+            try:
+                tf = f.required_timeframe
+                if tf is not None:
+                    candles = self.get_candles(self.exchange, self.symbol, tf)
+                else:
+                    candles = self.candles
+                raw_score = f.score(candles, self._current_regime)
+                # Treat NaN as None
+                if raw_score is not None and math.isnan(raw_score):
+                    raw_score = None
+                scores.append(raw_score)
+                debug_parts.append(f'{f.name}={raw_score:.1f}' if raw_score is not None else f'{f.name}=None')
+            except Exception as e:
+                scores.append(None)
+                debug_parts.append(f'{f.name}=ERR')
+                logger.info(f'Quality filter {f.name} error: {e}')
+
+        aggregate = aggregate_scores(scores, self.score_aggregation)
+        self._last_quality_score = aggregate
+
+        if aggregate is None:
+            return True  # All filters returned None (warmup) — bypass
+
+        passed = aggregate >= self.min_quality
+        result_str = 'PASS' if passed else 'BLOCK'
+        jh.debug(
+            f'[quality] regime={self._current_regime} '
+            f'{" ".join(debug_parts)} '
+            f'aggregate={aggregate:.1f} threshold={self.min_quality} '
+            f'-> {result_str}'
+        )
+        return passed
 
     def record_features(self, features_dict: dict) -> None:
         """
@@ -1114,12 +1213,24 @@ class Strategy(ABC):
         """
         if not self._is_initiated:
             self._is_initiated = True
+            # Log the initial regime on first tick
+            initial_regime = self._detect_regime()
+            self._current_regime = initial_regime
+            self._regime_log.append({
+                'timestamp': store.app.time,
+                'regime': initial_regime,
+            })
 
         # ── Regime detection (runs every tick) ──────────────────────
         new_regime = self._detect_regime()
         if new_regime != self._current_regime:
             old_regime = self._current_regime
             self._current_regime = new_regime
+            # Log the transition for dashboard regime overlay
+            self._regime_log.append({
+                'timestamp': store.app.time,
+                'regime': new_regime,
+            })
             self.on_regime_change(old_regime, new_regime)
 
         self._wait_until_executing_orders_are_fully_handled()
@@ -1174,6 +1285,10 @@ class Strategy(ABC):
         if self.position.is_close and self.entry_orders == []:
             self._reset()
 
+            # Quality gate: skip entry if regime quality is below threshold
+            if not self._check_quality_gate():
+                return
+
             # Route through regime behavior if one exists
             behavior = self._get_regime_behavior()
             if behavior is not None:
@@ -1202,9 +1317,16 @@ class Strategy(ABC):
                 )
 
             if _should_long:
+                self._store_quality_on_trade()
                 self._execute_long()
             elif _should_short:
+                self._store_quality_on_trade()
                 self._execute_short()
+
+    def _store_quality_on_trade(self) -> None:
+        """Persist the quality score on the current trade for analysis."""
+        if self._last_quality_score is not None and self.trade is not None:
+            self.trade.quality_score_at_entry = self._last_quality_score
 
     def _have_any_pending_market_exit_orders(self) -> bool:
         return any(o.is_active and o.type == order_types.MARKET for o in self.exit_orders)

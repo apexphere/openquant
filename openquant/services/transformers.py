@@ -186,6 +186,8 @@ def get_backtest_session_for_load_more(session: BacktestSession) -> dict:
     trades = jh.clean_infinite_values(json.loads(session.trades)) if session.trades else []
     hyperparameters = jh.clean_infinite_values(json.loads(session.hyperparameters)) if session.hyperparameters else None
     
+    regime_periods = jh.clean_infinite_values(json.loads(session.regime_periods)) if session.regime_periods else None
+
     result = {
         'id': str(session.id),
         'status': session.status,
@@ -194,6 +196,7 @@ def get_backtest_session_for_load_more(session: BacktestSession) -> dict:
         'trades': trades,
         'hyperparameters': hyperparameters,
         'has_chart_data': bool(session.chart_data),
+        'regime_periods': regime_periods,
         'created_at': session.created_at,
         'updated_at': session.updated_at,
         'execution_duration': session.execution_duration,

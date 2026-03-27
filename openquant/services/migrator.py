@@ -29,6 +29,7 @@ def run():
     _exchange_api_keys(migrator)
     _optimization_session(migrator)
     _monte_carlo_session(migrator)
+    _backtest_session(migrator)
 
     # create initial tables
     from openquant.models import Candle, ClosedTrade, Log, Order, OpenTab, LiveEquitySnapshot
@@ -66,6 +67,7 @@ def _closed_trade(migrator):
         {'action': migration_actions.ADD, 'name': 'soft_deleted_at', 'type': BigIntegerField(null=True)},
         {'action': migration_actions.ALLOW_NULL, 'name': 'closed_at', 'type': BigIntegerField(null=True)},
         {'action': migration_actions.ADD_INDEX, 'indexes': ('session_id',), 'is_unique': False},
+        {'action': migration_actions.ADD, 'name': 'quality_score_at_entry', 'type': FloatField(null=True)},
     ]
 
     if 'closedtrade' in database.db.get_tables():
@@ -149,6 +151,16 @@ def _monte_carlo_session(migrator):
     if 'montecarlosession' in database.db.get_tables():
         monte_carlo_session_columns = database.db.get_columns('montecarlosession')
         _migrate(migrator, fields, monte_carlo_session_columns, 'montecarlosession')
+
+
+def _backtest_session(migrator):
+    fields = [
+        {'action': migration_actions.ADD, 'name': 'regime_periods', 'type': TextField(null=True)},
+    ]
+
+    if 'backtestsession' in database.db.get_tables():
+        backtest_session_columns = database.db.get_columns('backtestsession')
+        _migrate(migrator, fields, backtest_session_columns, 'backtestsession')
 
 
 def _migrate(migrator, fields, columns, table):

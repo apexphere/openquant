@@ -1,0 +1,99 @@
+# RegimeRouter V2 — EMA crossover detector + pullback/mean-reversion behaviors
+#
+# EMA crossover detects trends faster than ADX for crypto markets.
+# Trending-up: buy pullbacks to the 4h fast EMA.
+# Ranging: fade Bollinger Band extremes.
+# Trending-down: flat (no trading — add short behavior later).
+
+detector:
+  type: trend_strength
+  params:
+    fast_period: 13
+    slow_period: 34
+    separation_pct: 0.5
+    confirm_bars: 2
+
+regimes:
+  trending-up: trend_pullback
+  trending-down: trend_pullback_short
+  ranging: bb_mean_reversion
+  cold-start: null
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 8
+
+params:
+  # Trend pullback entry (operates on 4h candles)
+  pb_fast_ema:
+    default: 13
+    min: 8
+    max: 21
+  pb_slow_ema:
+    default: 34
+    min: 20
+    max: 55
+  pb_rsi_period:
+    default: 14
+    min: 7
+    max: 21
+  pb_rsi_max:
+    default: 70
+    min: 60
+    max: 85
+  pb_rsi_min:
+    default: 30
+    min: 15
+    max: 40
+  pb_atr_period:
+    default: 14
+    min: 7
+    max: 21
+  pb_atr_sl_mult:
+    default: 2.0
+    min: 1.0
+    max: 4.0
+
+  # BB mean-reversion
+  bb_window:
+    default: 15
+    min: 10
+    max: 30
+  bb_mult:
+    default: 2.5
+    min: 1.5
+    max: 3.5
+  rsi_period:
+    default: 14
+    min: 7
+    max: 21
+  rsi_oversold:
+    default: 30
+    min: 20
+    max: 45
+  rsi_overbought:
+    default: 70
+    min: 55
+    max: 80
+  vol_mult:
+    default: 1.2
+    min: 0.5
+    max: 3.0
+
+  # Shared risk / position sizing
+  risk_pct:
+    default: 0.05
+    min: 0.01
+    max: 0.2
+  trail_pct:
+    default: 0.03
+    min: 0.01
+    max: 0.08
+  sl_pct:
+    default: 0.05
+    min: 0.02
+    max: 0.10
+  tp_pct:
+    default: 0.10
+    min: 0.05
+    max: 0.30

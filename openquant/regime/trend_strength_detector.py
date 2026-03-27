@@ -70,8 +70,8 @@ class TrendStrengthDetector:
         if candles is None or len(candles) < min_bars:
             return 'cold-start'
 
-        fast_ema = ta.ema(candles, period=self.fast_period)
-        slow_ema = ta.ema(candles, period=self.slow_period)
+        fast_ema = ta.ema(candles, period=self.fast_period, sequential=True)[-1]
+        slow_ema = ta.ema(candles, period=self.slow_period, sequential=True)[-1]
         current_close = candles[-1, 2]
 
         if np.isnan(fast_ema) or np.isnan(slow_ema) or np.isnan(current_close):

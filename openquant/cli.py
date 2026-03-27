@@ -83,6 +83,76 @@ def _wait_for_session(session_id: str, server_url: str, token: str,
     return {}
 
 
+def _save_session_results_state(
+    session_id, session, strategy, exchange, symbol, timeframe,
+    start, finish, data_routes, server_url, token
+):
+    """Save full state so the dashboard shows General Info, Routes, and metrics."""
+    metrics = session.get('metrics', {})
+    hp = session.get('hyperparameters', [])
+    trades = session.get('trades', [])
+    state = {
+        'form': {
+            'start_date': start,
+            'finish_date': finish,
+            'debug_mode': False,
+            'export_chart': True,
+            'export_tradingview': False,
+            'export_csv': False,
+            'export_json': True,
+            'fast_mode': False,
+            'benchmark': True,
+            'exchange': exchange,
+            'routes': [{'symbol': symbol, 'timeframe': timeframe, 'strategy': strategy}],
+            'data_routes': data_routes,
+        },
+        'results': {
+            'showResults': True,
+            'executing': False,
+            'logsModal': False,
+            'progressbar': {'current': 100, 'estimated_remaining_seconds': 0},
+            'routes_info': [[
+                {'value': symbol, 'style': ''},
+                {'value': timeframe, 'style': ''},
+                {'value': strategy, 'style': ''},
+            ]],
+            'generalInfo': {
+                'title': None,
+                'description': None,
+                'session_id': session_id,
+                'debug_mode': 'False',
+            },
+            'metrics': metrics if metrics else {},
+            'hyperparameters': hp if hp else [],
+            'trades': trades if trades else [],
+            'exception': session.get('exception'),
+            'alert': None,
+            'info': None,
+        },
+    }
+    try:
+        _api_post('/backtest/update-state', {'id': session_id, 'state': state}, server_url, token)
+    except Exception:
+        pass  # non-critical — backtest results still accessible
+
+
+def _format_regime_periods(periods: list) -> str:
+    """Format regime periods as a readable timeline."""
+    if not periods:
+        return ''
+    from datetime import datetime, timezone
+    lines = ['  Regime Timeline:']
+    for p in periods:
+        start_ts = p.get('start', 0)
+        end_ts = p.get('end', 0)
+        regime = p.get('regime', '?')
+        start_str = datetime.fromtimestamp(start_ts / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        end_str = datetime.fromtimestamp(end_ts / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        duration_days = max(1, round((end_ts - start_ts) / (1000 * 86400)))
+        lines.append(f'    {start_str} → {end_str}  ({duration_days:>3}d)  {regime}')
+    return '\n'.join(lines)
+
+
 def _format_metrics(m: dict) -> str:
     """Format a metrics dict as a readable table."""
     if not m:
@@ -180,11 +250,30 @@ def backtest(strategy, start, finish, exchange, symbol, timeframe,
         'export_csv': False,
         'export_json': True,
         'fast_mode': False,
-        'benchmark': False,
+        'benchmark': True,
     }
 
     click.echo(f'Backtesting {strategy} on {symbol} ({timeframe})')
     click.echo(f'Period: {start} → {finish} | Balance: ${balance:,.0f} | Fee: {fee*100:.2f}%')
+
+    # Save state so the dashboard shows strategy/exchange/symbol in the listing
+    state = {
+        'form': {
+            'start_date': start,
+            'finish_date': finish,
+            'debug_mode': False,
+            'export_chart': True,
+            'export_tradingview': False,
+            'export_csv': False,
+            'export_json': True,
+            'fast_mode': False,
+            'benchmark': True,
+            'exchange': exchange,
+            'routes': [{'symbol': symbol, 'timeframe': timeframe, 'strategy': strategy}],
+            'data_routes': dr,
+        }
+    }
+    _api_post('/backtest/update-state', {'id': session_id, 'state': state}, server_url, token)
 
     _api_post('/backtest', payload, server_url, token)
 
@@ -196,6 +285,12 @@ def backtest(strategy, start, finish, exchange, symbol, timeframe,
     if status == 'stopped' and session.get('exception'):
         click.echo(f'Error: {session["exception"][:500]}')
         sys.exit(1)
+
+    # Update state with results so the dashboard right panel works
+    _save_session_results_state(
+        session_id, session, strategy, exchange, symbol, timeframe,
+        start, finish, dr, server_url, token
+    )
 
     metrics = session.get('metrics')
     if json_output:
@@ -241,6 +336,9 @@ def results(session_id, limit, json_output) -> None:
             trades = session.get('trades', [])
             if trades:
                 click.echo(f'\n  Trade count: {len(trades)}')
+            regime_periods = session.get('regime_periods')
+            if regime_periods:
+                click.echo(f'\n{_format_regime_periods(regime_periods)}')
     else:
         # List recent sessions
         data = _api_post('/backtest/sessions', {'limit': limit}, server_url, token)
@@ -300,6 +398,11 @@ def optimize(strategy, training_start, training_finish, testing_start,
                    {'symbol': symbol, 'timeframe': '4h'}]
     data_routes = [r for r in data_routes if r['timeframe'] != timeframe]
 
+    exchange_config = {
+        'name': exchange, 'fee': fee, 'type': 'futures',
+        'futures_leverage_mode': 'cross', 'futures_leverage': 1,
+        'balance': balance,
+    }
     payload = {
         'exchange': exchange,
         'routes': [{'symbol': symbol, 'timeframe': timeframe, 'strategy': strategy}],
@@ -310,13 +413,8 @@ def optimize(strategy, training_start, training_finish, testing_start,
             'trials': trials,
             'best_candidates_count': 20,
             'logging': {},
-            'exchanges': {
-                exchange: {
-                    'name': exchange, 'fee': fee, 'type': 'futures',
-                    'futures_leverage_mode': 'cross', 'futures_leverage': 1,
-                    'balance': balance,
-                }
-            },
+            'exchange': exchange_config,
+            'exchanges': {exchange: exchange_config},
         },
         'training_start_date': training_start,
         'training_finish_date': training_finish,
@@ -335,6 +433,124 @@ def optimize(strategy, training_start, training_finish, testing_start,
 
     _api_post('/optimization', payload, server_url, token)
     click.echo('Optimization started. Check the dashboard for progress.')
+
+
+@cli.command('optimize-results')
+@click.argument('session_id', required=False)
+@click.option('--limit', default=5, type=int, help='Number of top trials to show')
+@click.option('--json-output', is_flag=True, help='Output as JSON')
+def optimize_results(session_id, limit, json_output) -> None:
+    """Show optimization results. Without SESSION_ID, lists recent sessions.
+
+    Examples:
+
+        jesse optimize-results
+
+        jesse optimize-results abc123-def456
+
+        jesse optimize-results abc123-def456 --limit 10
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    if session_id:
+        data = _api_post(f'/optimization/sessions/{session_id}', {}, server_url, token)
+        session = data.get('session', {})
+        if not session:
+            click.echo(f'Optimization session {session_id} not found.')
+            sys.exit(1)
+
+        if json_output:
+            click.echo(json.dumps(session, indent=2, default=str))
+            return
+
+        status = session.get('status', 'unknown')
+        completed = session.get('completed_trials', 0)
+        total = session.get('total_trials', 0)
+        best_score = session.get('best_score')
+        pct = (completed / total * 100) if total > 0 else 0
+
+        click.echo(f'Session:  {session_id}')
+        click.echo(f'Status:   {status}')
+        click.echo(f'Progress: {completed}/{total} ({pct:.0f}%)')
+        if best_score is not None:
+            click.echo(f'Best:     {best_score:.4f}')
+        click.echo()
+
+        trials = session.get('best_candidates', session.get('best_trials', []))
+        if isinstance(trials, str):
+            trials = json.loads(trials) if trials else []
+        if not trials:
+            click.echo('No completed trials yet.')
+            return
+
+        # Show top N trials
+        click.echo(f'Top {min(limit, len(trials))} trials:')
+        click.echo(f'{"Rank":>4} {"Trial":>7} {"Fitness":>8} {"Train Sharpe":>13} {"Test Sharpe":>12}')
+        click.echo('-' * 50)
+        for i, t in enumerate(trials[:limit]):
+            rank = i + 1
+            trial_num = t.get('trial', t.get('trial_number', '?'))
+            fitness = t.get('fitness', t.get('score', 0))
+            # Try multiple key formats for training/testing metrics
+            train_sharpe = _extract_sharpe(t, 'training')
+            test_sharpe = _extract_sharpe(t, 'testing')
+            click.echo(f'{rank:>4} {trial_num:>7} {fitness:>8.4f} {train_sharpe:>13} {test_sharpe:>12}')
+
+        # Show best trial params
+        click.echo()
+        best = trials[0]
+        params = best.get('params', best.get('hp', {}))
+        if params:
+            click.echo('Best params:')
+            for k, v in sorted(params.items()):
+                if isinstance(v, float):
+                    click.echo(f'  {k}: {v:.4f}')
+                else:
+                    click.echo(f'  {k}: {v}')
+    else:
+        data = _api_post('/optimization/sessions', {'limit': 10}, server_url, token)
+        sessions = data.get('sessions', [])
+        if not sessions:
+            click.echo('No optimization sessions found.')
+            return
+
+        if json_output:
+            click.echo(json.dumps(sessions, indent=2, default=str))
+            return
+
+        click.echo(f'{"ID":<38} {"Status":<10} {"Progress":>10} {"Best":>8}')
+        click.echo('-' * 72)
+        for s in sessions:
+            completed = s.get('completed_trials', 0)
+            total = s.get('total_trials', 0)
+            best = s.get('best_score')
+            best_str = f'{best:.4f}' if best is not None else 'N/A'
+            progress = f'{completed}/{total}'
+            click.echo(f'{s["id"]:<38} {s.get("status", "?"):<10} {progress:>10} {best_str:>8}')
+
+
+def _extract_sharpe(trial: dict, period: str) -> str:
+    """Extract sharpe ratio from a trial dict, handling multiple formats."""
+    # Format 1: training_sharpe / testing_sharpe keys
+    key = f'{period}_sharpe'
+    if key in trial:
+        v = trial[key]
+        return f'{v:.2f}' if v is not None else 'N/A'
+
+    # Format 2: training_metrics / testing_metrics nested dict
+    metrics_key = f'{period}_metrics'
+    if metrics_key in trial and isinstance(trial[metrics_key], dict):
+        v = trial[metrics_key].get('sharpe_ratio')
+        return f'{v:.2f}' if v is not None else 'N/A'
+
+    # Format 3: training / testing as direct sharpe values
+    if period in trial:
+        v = trial[period]
+        if isinstance(v, (int, float)):
+            return f'{v:.2f}'
+
+    return 'N/A'
 
 
 @cli.command('create-composite')

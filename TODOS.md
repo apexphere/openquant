@@ -17,6 +17,30 @@ Completed 2026-03-26. CLAUDE.md created with project structure, strategy develop
 **Depends on:** Phase B safety infrastructure (circuit breaker, NaN guard, margin check, notifications)
 **Added:** 2026-03-26 via /plan-eng-review
 
+## P2: Dashboard Quality Score Visualization
+**What:** Add quality score timeline chart to the web dashboard (localhost:9000). Shows per-bar quality scores with min_quality threshold line and trade entry/exit markers.
+**Why:** Enables visual threshold tuning. Seeing quality scores overlaid on price action makes it obvious whether filters are catching junk setups.
+**Effort:** M (human: ~3 days / CC: ~30 min). Requires Nuxt dashboard exploration.
+**Priority:** P2
+**Depends on:** Quality Filter Layer implementation + quality_score_at_entry on ClosedTrade model.
+**Added:** 2026-03-27 via /plan-ceo-review
+
+## P3: Continuous Divergence Scoring (MACDDivergenceFilter v2)
+**What:** Upgrade MACDDivergenceFilter from binary (present=3, absent=10) to continuous scoring based on divergence magnitude.
+**Why:** Binary tells you IF divergence exists. Continuous tells you HOW MUCH. Enables finer-grained threshold tuning.
+**Effort:** S (human: ~4 hours / CC: ~15 min). Peak detection (the hard part) is already built in v1.
+**Priority:** P3
+**Depends on:** MACDDivergenceFilter v1 + backtesting validation that divergence detection matters.
+**Added:** 2026-03-27 via /plan-ceo-review
+
+## P3: Extract ConfirmationMixin from Detectors
+**What:** Extract the `_apply_confirmation` state machine (~25 lines) from ADXRegimeDetector, TrendStrengthDetector, and VolatilityRegimeDetector into a shared mixin or utility function.
+**Why:** Same code copy-pasted across 3 detectors. If quality filters ever need confirmation, that's a 4th copy.
+**Effort:** S (human: ~2 hours / CC: ~10 min)
+**Priority:** P3
+**Depends on:** Nothing.
+**Added:** 2026-03-27 via /plan-ceo-review
+
 ## P3: Multi-Tenant Store Refactor
 **What:** Scope Store (positions, orders, balances) per-user for Phase 3 beta users.
 **Why:** Current architecture is single-tenant. Phase 3 requires multiple users trading simultaneously with isolated state.

@@ -305,9 +305,13 @@ class Optimizer:
                 elif param_type == 'categorical':
                     distributions[param_name] = optuna.distributions.CategoricalDistribution(param['options'])
 
+            # Filter params to only include keys with distributions
+            # (excludes fixed config values like pb_timeframe injected at runtime)
+            filtered_params = {k: v for k, v in params.items() if k in distributions}
+
             # Create a new trial
             trial = optuna.create_trial(
-                params=params,
+                params=filtered_params,
                 distributions=distributions,
                 value=score,
                 user_attrs={

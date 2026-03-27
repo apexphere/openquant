@@ -211,6 +211,8 @@ def _execute_backtest(
         sync_publish('metrics', result['metrics'])
         sync_publish('equity_curve', result['equity_curve'], compression=True)
         sync_publish('trades', result['trades'], compression=True)
+        if result.get('regime_periods'):
+            sync_publish('regime_periods', result['regime_periods'], compression=True)
         
         # Prepare chart data if requested (call formatting functions once and cache)
         chart_data = None
@@ -251,7 +253,8 @@ def _execute_backtest(
             hyperparameters=result.get('hyperparameters'),
             chart_data=chart_data,
             execution_duration=result.get('execution_duration'),
-            strategy_codes=strategy_codes if strategy_codes else None
+            strategy_codes=strategy_codes if strategy_codes else None,
+            regime_periods=result.get('regime_periods')
         )
         update_backtest_session_status(client_id, 'finished')
 
@@ -909,6 +912,10 @@ def _generate_outputs(
         result["csv"] = logs_path["csv"]
     if generate_equity_curve:
         result["equity_curve"] = charts.equity_curve(benchmark)
+    # Include regime periods if strategy has regime detection
+    regime_data = charts.regime_periods()
+    if regime_data is not None:
+        result["regime_periods"] = regime_data
     if generate_logs:
         result["logs"] = f"storage/logs/backtest-mode/{jh.get_session_id()}.txt"
     return result

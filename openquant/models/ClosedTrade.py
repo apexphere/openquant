@@ -30,6 +30,7 @@ class ClosedTrade(peewee.Model):
     updated_at = peewee.BigIntegerField()
     session_mode = peewee.CharField()
     soft_deleted_at = peewee.BigIntegerField(null=True)
+    quality_score_at_entry = peewee.FloatField(null=True)
 
     class Meta:
         from openquant.services.db import database

@@ -79,7 +79,7 @@ class VolatilityRegimeDetector:
         atr_pcts = []
         for i in range(len(candles) - self.lookback, len(candles)):
             slice_candles = candles[:i + 1]
-            atr_val = ta.atr(slice_candles, period=self.atr_period)
+            atr_val = ta.atr(slice_candles, period=self.atr_period, sequential=True)[-1]
             close = slice_candles[-1, 2]
             if close > 0 and not np.isnan(atr_val):
                 atr_pcts.append(atr_val / close * 100)

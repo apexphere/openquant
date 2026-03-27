@@ -214,3 +214,79 @@ class TestRegimeChange:
         assert s.current_regime == 'all'
         s._current_regime = 'trending-up'
         assert s.current_regime == 'trending-up'
+
+
+class TestRegimeLog:
+    def test_regime_log_starts_empty(self):
+        s = MinimalStrategy()
+        assert s.regime_log == []
+
+    def test_regime_log_property_returns_list(self):
+        s = MinimalStrategy()
+        s._regime_log.append({'timestamp': 1000, 'regime': 'trending-up'})
+        assert len(s.regime_log) == 1
+        assert s.regime_log[0]['regime'] == 'trending-up'
+
+    def test_regime_log_is_independent_per_strategy(self):
+        s1 = MinimalStrategy()
+        s2 = MinimalStrategy()
+        s1._regime_log.append({'timestamp': 1000, 'regime': 'trending-up'})
+        assert len(s2.regime_log) == 0
+
+
+class TestRegimeOverlayCharts:
+    def test_regime_color_mapping(self):
+        from openquant.services.charts import _regime_color, REGIME_COLORS
+        assert _regime_color('trending-up') == REGIME_COLORS['trending-up']
+        assert _regime_color('cold-start') == REGIME_COLORS['cold-start']
+        # Unknown regime gets default
+        assert _regime_color('unknown-regime') is not None
+
+    def test_regime_equity_curve_coloring(self):
+        from datetime import datetime
+        from openquant.services.charts import _calculate_regime_equity_curve, REGIME_COLORS
+
+        daily_balance = [10000, 10100, 10050, 10200, 10300]
+        start_date = datetime(2025, 6, 1)
+        regime_log = [
+            {'timestamp': datetime(2025, 6, 1).timestamp() * 1000, 'regime': 'trending-up'},
+            {'timestamp': datetime(2025, 6, 3).timestamp() * 1000, 'regime': 'ranging'},
+        ]
+
+        result = _calculate_regime_equity_curve(daily_balance, start_date, regime_log)
+        assert result['name'] == 'Portfolio'
+        assert len(result['data']) == 5
+
+        # First two points should be trending-up color
+        assert result['data'][0]['color'] == REGIME_COLORS['trending-up']
+        assert result['data'][1]['color'] == REGIME_COLORS['trending-up']
+        # Points from June 3 onward should be ranging color
+        assert result['data'][2]['color'] == REGIME_COLORS['ranging']
+        assert result['data'][3]['color'] == REGIME_COLORS['ranging']
+        assert result['data'][4]['color'] == REGIME_COLORS['ranging']
+
+    def test_regime_equity_curve_values_preserved(self):
+        from datetime import datetime
+        from openquant.services.charts import _calculate_regime_equity_curve
+
+        daily_balance = [10000, 10100, 10200]
+        start_date = datetime(2025, 6, 1)
+        regime_log = [
+            {'timestamp': datetime(2025, 6, 1).timestamp() * 1000, 'regime': 'trending-up'},
+        ]
+
+        result = _calculate_regime_equity_curve(daily_balance, start_date, regime_log)
+        values = [p['value'] for p in result['data']]
+        assert values == [10000, 10100, 10200]
+
+    def test_format_regime_periods_cli(self):
+        from openquant.cli import _format_regime_periods
+
+        periods = [
+            {'start': 1717200000000, 'end': 1717459200000, 'regime': 'trending-up', 'color': '#22C55E'},
+            {'start': 1717459200000, 'end': 1717632000000, 'regime': 'ranging', 'color': '#F59E0B'},
+        ]
+        output = _format_regime_periods(periods)
+        assert 'Regime Timeline' in output
+        assert 'trending-up' in output
+        assert 'ranging' in output

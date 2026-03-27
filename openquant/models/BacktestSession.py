@@ -33,6 +33,9 @@ class BacktestSession(peewee.Model):
     exception = peewee.TextField(null=True)
     traceback = peewee.TextField(null=True)
     
+    # Regime overlay data in JSON format
+    regime_periods = peewee.TextField(null=True)
+
     # Execution metrics
     execution_duration = peewee.FloatField(null=True)
 
@@ -139,6 +142,16 @@ class BacktestSession(peewee.Model):
         self.chart_data = json.dumps(data_dict) if data_dict else None
     
     @property
+    def regime_periods_json(self):
+        if not self.regime_periods:
+            return []
+        return json.loads(self.regime_periods)
+
+    @regime_periods_json.setter
+    def regime_periods_json(self, data):
+        self.regime_periods = json.dumps(data) if data else None
+
+    @property
     def state_json(self):
         """
         Returns the frontend state as a Python dictionary
@@ -230,6 +243,7 @@ def store_backtest_session(
             'trades': None,
             'hyperparameters': None,
             'chart_data': None,
+            'regime_periods': None,
             'state': None,
             'exception': None,
             'traceback': None,
@@ -268,14 +282,15 @@ def store_backtest_session_exception(id: str, exception: str, traceback: str) ->
 
 
 def update_backtest_session_results(
-    id: str, 
+    id: str,
     metrics: dict = None,
     equity_curve: list = None,
     trades: list = None,
     hyperparameters: dict = None,
     chart_data: dict = None,
     execution_duration: float = None,
-    strategy_codes: dict = None
+    strategy_codes: dict = None,
+    regime_periods: list = None
 ) -> None:
     d = {
         'updated_at': jh.now_to_timestamp(True)
@@ -301,6 +316,9 @@ def update_backtest_session_results(
 
     if strategy_codes is not None:
         d['strategy_codes'] = json.dumps(strategy_codes)
+
+    if regime_periods is not None:
+        d['regime_periods'] = json.dumps(regime_periods)
 
     BacktestSession.update(**d).where(BacktestSession.id == id).execute()
 
