@@ -25,6 +25,7 @@ import openquant.services.logger as logger
 
 _DETECTOR_REGISTRY = {
     'adx': 'openquant.regime.adx_detector.ADXRegimeDetector',
+    'ema_adx': 'openquant.regime.ema_adx_detector.EmaAdxDetector',
     'volatility': 'openquant.regime.volatility_detector.VolatilityRegimeDetector',
     'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
 }

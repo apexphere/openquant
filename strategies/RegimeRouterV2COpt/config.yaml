@@ -3,16 +3,21 @@
 # Testing:  Oct-Dec 2025, Sharpe 1.21
 
 detector:
-  type: trend_strength
+  type: ema_adx
   params:
     fast_period: 13
     slow_period: 34
-    separation_pct: 0.5
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    separation_pct: 0.3
     confirm_bars: 2
 
 regimes:
   trending-up: trend_pullback
   trending-down: trend_pullback_short
+  ranging-up: bb_mean_reversion
+  ranging-down: bb_mean_reversion
   ranging: bb_mean_reversion
   cold-start: null
 
