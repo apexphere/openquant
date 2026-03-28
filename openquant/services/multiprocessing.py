@@ -57,6 +57,8 @@ class ProcessManager:
         self._pid_to_client_id_map = {}
         self.client_id_to_pid_to_map = {}
         self._task_meta = {}  # client_id -> {function, args, type}
+        self._retry_counts = {}  # client_id -> int
+        self._max_retries = 3
         self._queue: deque = deque()  # pending tasks
         self._queue_lock = threading.Lock()
         try:
@@ -178,9 +180,13 @@ class ProcessManager:
             # Don't resume if manually terminated or already finished
             if session.status in ('terminated', 'finished'):
                 return False
-            # Resume if there are incomplete trials
+            # Resume if there are incomplete trials and retries remaining
             if session.completed_trials and session.total_trials:
                 if session.completed_trials < session.total_trials:
+                    retries = self._retry_counts.get(client_id, 0)
+                    if retries >= self._max_retries:
+                        jh.debug(f"Optimization {client_id} exceeded max retries ({self._max_retries}). Giving up.")
+                        return False
                     return True
         except Exception:
             pass
@@ -209,7 +215,9 @@ class ProcessManager:
                                     prefixed = self._prefixed_client_id(client_id)
                                     meta = self._task_meta.get(prefixed)
                                     if meta:
-                                        jh.debug(f"Auto-resuming crashed optimization {client_id}")
+                                        retries = self._retry_counts.get(client_id, 0) + 1
+                                        self._retry_counts[client_id] = retries
+                                        jh.debug(f"Auto-resuming optimization {client_id} (retry {retries}/{self._max_retries})")
                                         with self._queue_lock:
                                             self._queue.append((meta['function'], meta['args'], meta['type']))
                                 else:
