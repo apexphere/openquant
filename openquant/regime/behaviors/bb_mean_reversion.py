@@ -1,91 +1,98 @@
 """Bollinger Band mean-reversion behavior for ranging markets.
 
-Extracted from RegimeRouter's ranging-regime logic. Fades BB band extremes
-with RSI + volume confirmation. Trailing stop only exit (no mid-band).
+Quick in, quick out. Fades BB band extremes in ranges.
 
-Used as a sub-behavior in composite strategies:
-    regimes = {
-        'ranging-up': BBMeanReversionBehavior,
-        'ranging-down': BBMeanReversionBehavior,
-    }
+Entry:
+    Long:  price touches lower band + RSI confirms oversold
+    Short: price touches upper band + RSI confirms overbought
+
+Exit:
+    TP: opposite band (full range capture)
+    SL: just outside the entry band (range is breaking)
+
+Operates on the route timeframe (15m) for fast reaction.
+No trailing stop — mean-reversion targets are fixed.
+
+Reads from strategy.hp:
+    bb_window (default 20), bb_mult (default 2.0)
+    rsi_period (default 14), rsi_oversold (default 35), rsi_overbought (default 65)
+    bb_sl_pct (default 0.01), risk_pct
 """
 import numpy as np
 import openquant.indicators as ta
 
 
 class BBMeanReversionBehavior:
-    """BB mean-reversion: long below lower band, short above upper band.
+    """BB mean-reversion: long at lower band, short at upper band.
 
-    Reads hyperparameters from the parent strategy's self.hp dict:
-        bb_window, bb_mult, rsi_period, rsi_oversold, rsi_overbought,
-        vol_mult, risk_pct, sl_pct, tp_pct, trail_pct
+    TP targets opposite band. SL just outside entry band.
     """
 
     def should_long(self, strategy) -> bool:
         if _in_cooldown(strategy):
             return False
-        bb = ta.bollinger_bands(strategy.candles, period=strategy.hp['bb_window'],
-                                 devup=strategy.hp['bb_mult'], devdn=strategy.hp['bb_mult'])
-        if strategy.price >= bb[2]:  # above lower band
+        bb = _get_bb(strategy)
+        # Price at or below lower band
+        if strategy.price > bb[2]:
             return False
-        if ta.rsi(strategy.candles, period=strategy.hp['rsi_period']) > strategy.hp['rsi_oversold']:
-            return False
-        if not _volume_spike(strategy):
+        # RSI confirms oversold
+        rsi = ta.rsi(strategy.candles, period=strategy.hp.get('rsi_period', 14))
+        if rsi > strategy.hp.get('rsi_oversold', 35):
             return False
         return True
 
     def should_short(self, strategy) -> bool:
         if _in_cooldown(strategy):
             return False
-        bb = ta.bollinger_bands(strategy.candles, period=strategy.hp['bb_window'],
-                                 devup=strategy.hp['bb_mult'], devdn=strategy.hp['bb_mult'])
-        if strategy.price <= bb[1]:  # below upper band
+        bb = _get_bb(strategy)
+        # Price at or above upper band
+        if strategy.price < bb[1]:
             return False
-        if ta.rsi(strategy.candles, period=strategy.hp['rsi_period']) < strategy.hp['rsi_overbought']:
-            return False
-        if not _volume_spike(strategy):
+        # RSI confirms overbought
+        rsi = ta.rsi(strategy.candles, period=strategy.hp.get('rsi_period', 14))
+        if rsi < strategy.hp.get('rsi_overbought', 65):
             return False
         return True
 
     def go_long(self, strategy) -> None:
-        bb = ta.bollinger_bands(strategy.candles, period=strategy.hp['bb_window'],
-                                 devup=strategy.hp['bb_mult'], devdn=strategy.hp['bb_mult'])
+        bb = _get_bb(strategy)
         qty = _size(strategy)
-        sl_pct = strategy.hp.get('bb_sl_pct', strategy.hp.get('sl_pct', 0.03))
+
         strategy.buy = qty, strategy.price
-        strategy.stop_loss = qty, strategy.price * (1 - sl_pct)
-        # TP targets the middle band (SMA) — natural mean-reversion target
+        # SL: below the lower band — if price breaks the band, range is over
+        strategy.stop_loss = qty, bb[2] * (1 - strategy.hp.get('bb_sl_pct', 0.005))
+        # TP: middle band (SMA) — quick, reliable target
         strategy.take_profit = qty, bb[0]
 
     def go_short(self, strategy) -> None:
-        bb = ta.bollinger_bands(strategy.candles, period=strategy.hp['bb_window'],
-                                 devup=strategy.hp['bb_mult'], devdn=strategy.hp['bb_mult'])
+        bb = _get_bb(strategy)
         qty = _size(strategy)
-        sl_pct = strategy.hp.get('bb_sl_pct', strategy.hp.get('sl_pct', 0.03))
+
         strategy.sell = qty, strategy.price
-        strategy.stop_loss = qty, strategy.price * (1 + sl_pct)
-        # TP targets the middle band (SMA)
+        # SL: above the upper band
+        strategy.stop_loss = qty, bb[1] * (1 + strategy.hp.get('bb_sl_pct', 0.005))
+        # TP: middle band (SMA)
         strategy.take_profit = qty, bb[0]
 
     def update_position(self, strategy) -> None:
-        pass  # Fixed TP at middle band — no trailing needed for mean-reversion
+        pass  # Fixed TP/SL — no trailing in ranges
 
 
-# ── Shared helpers ──────────────────────────────────────────────────
+def _get_bb(strategy):
+    return ta.bollinger_bands(
+        strategy.candles,
+        period=strategy.hp.get('bb_window', 20),
+        devup=strategy.hp.get('bb_mult', 2.0),
+        devdn=strategy.hp.get('bb_mult', 2.0),
+    )
+
 
 def _size(strategy) -> float:
-    capital = strategy.balance * strategy.hp['risk_pct']
+    capital = strategy.balance * strategy.hp.get('risk_pct', 0.05)
     return max(0.001, round(capital / strategy.price, 3))
 
 
 def _in_cooldown(strategy) -> bool:
-    cooldown_bars = strategy.vars.get('cooldown_bars', 8)
+    cooldown_bars = strategy.vars.get('cooldown_bars', 4)
     last_exit = strategy.vars.get('last_exit_index', -999999)
     return (strategy.index - last_exit) < cooldown_bars
-
-
-def _volume_spike(strategy) -> bool:
-    if len(strategy.candles) < 20:
-        return True
-    avg_vol = np.mean(strategy.candles[-20:, 5])
-    return strategy.candles[-1, 5] >= avg_vol * strategy.hp['vol_mult']
