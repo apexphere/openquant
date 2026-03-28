@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { useOptimizationSessions } from "@/hooks/use-optimization";
+import { useOptimizationSessions, useOptimizationSession } from "@/hooks/use-optimization";
 import { StatCard } from "@/components/stat-card";
 import type { OptimizationSession, OptimizationTrial } from "@/lib/types";
 
@@ -29,7 +29,7 @@ function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
     );
   }
 
-  const paramNames = Object.keys(trials[0]?.parameters ?? {});
+  const paramNames = Object.keys(trials[0]?.params ?? trials[0]?.parameters ?? {});
   if (paramNames.length < 2) {
     // 1D bar chart fallback
     const paramName = paramNames[0] ?? "param";
@@ -39,7 +39,7 @@ function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
           {paramName} vs Fitness
         </div>
         {trials.slice(0, 20).map((t, i) => {
-          const val = t.parameters[paramName];
+          const val = (t.params ?? t.parameters)?.[paramName];
           const maxFitness = Math.max(...trials.map((tr) => tr.fitness));
           const width = (t.fitness / maxFitness) * 100;
           return (
@@ -61,8 +61,8 @@ function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
 
   // 2D scatter
   const [xParam, yParam] = paramNames;
-  const xValues = trials.map((t) => t.parameters[xParam] as number);
-  const yValues = trials.map((t) => t.parameters[yParam] as number);
+  const xValues = trials.map((t) => ((t.params ?? t.parameters)?.[xParam] ?? 0) as number);
+  const yValues = trials.map((t) => ((t.params ?? t.parameters)?.[yParam] ?? 0) as number);
   const xMin = Math.min(...xValues);
   const xMax = Math.max(...xValues);
   const yMin = Math.min(...yValues);
@@ -80,8 +80,8 @@ function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
       </div>
       <svg viewBox="0 0 400 300" className="w-full" style={{ maxHeight: 300 }}>
         {trials.map((t, i) => {
-          const x = 40 + ((t.parameters[xParam] as number - xMin) / xRange) * 340;
-          const y = 280 - ((t.parameters[yParam] as number - yMin) / yRange) * 260;
+          const x = 40 + ((((t.params ?? t.parameters)?.[xParam] ?? 0) as number - xMin) / xRange) * 340;
+          const y = 280 - ((((t.params ?? t.parameters)?.[yParam] ?? 0) as number - yMin) / yRange) * 260;
           const norm = (t.fitness - minFitness) / fRange;
           const color =
             norm > 0.5
@@ -98,7 +98,7 @@ function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
               strokeWidth={2}
             >
               <title>
-                {xParam}={t.parameters[xParam]}, {yParam}={t.parameters[yParam]}, fitness={t.fitness.toFixed(3)}
+                {xParam}={(t.params ?? t.parameters)?.[xParam]}, {yParam}={(t.params ?? t.parameters)?.[yParam]}, fitness={(t.fitness ?? 0).toFixed(3)}
               </title>
             </circle>
           );
@@ -113,11 +113,73 @@ function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
   );
 }
 
+function DetailPanel({ selected }: { selected: any | null }) {
+  if (!selected) {
+    return (
+      <div className="text-[var(--text-secondary)] text-center py-16">
+        Select an optimization session to explore.
+      </div>
+    );
+  }
+
+  const trials = selected.best_candidates ?? selected.best_trials ?? [];
+  const completed = selected.completed_trials ?? 0;
+  const total = selected.total_trials ?? 0;
+  const bestScore = selected.best_score ?? trials[0]?.fitness;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-4 gap-3">
+        <StatCard label="Best Fitness" value={bestScore != null ? bestScore.toFixed(4) : "—"} />
+        <StatCard label="Best Trial" value={trials[0] ? `#${trials[0].trial ?? trials[0].rank ?? "—"}` : "—"} />
+        <StatCard label="Trials" value={`${completed}/${total}`} />
+        <StatCard label="Duration" value={selected.execution_duration ? `${Math.floor(selected.execution_duration / 60)}m` : "—"} />
+      </div>
+
+      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
+        <div className="text-[13px] font-semibold text-[var(--text-heading)] mb-3">Top Trials Parameter Map</div>
+        <TrialScatter trials={trials} />
+      </div>
+
+      {trials.length > 0 && (
+        <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
+          <div className="text-[13px] font-semibold text-[var(--text-heading)] mb-3">Top Trials</div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr>
+                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">#</th>
+                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Fitness</th>
+                {Object.keys(trials[0]?.params ?? trials[0]?.parameters ?? {}).map((p) => (
+                  <th key={p} className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">{p}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {trials.slice(0, 10).map((trial: any, i: number) => (
+                <tr key={i} className="border-b border-[var(--bg-primary)]">
+                  <td className="py-2 px-2">{trial.trial ?? trial.rank}</td>
+                  <td className="py-2 px-2 text-[var(--green)]">{(trial.fitness ?? 0).toFixed(3)}</td>
+                  {Object.values(trial.params ?? trial.parameters ?? {}).map((v: any, j: number) => (
+                    <td key={j} className="py-2 px-2">{typeof v === "number" ? v.toFixed(2) : String(v)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OptimizationPage() {
   const { data: sessions, error, isLoading } = useOptimizationSessions();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { data: selectedDetail } = useOptimizationSession(selectedId);
 
-  const selected = sessions?.find((s) => s.id === selectedId);
+  const selectedList = sessions?.find((s) => s.id === selectedId);
+  // Merge list data (completed_trials, best_score) with detail data (best_candidates)
+  const selected = selectedDetail ?? selectedList ?? null;
 
   if (error) {
     return (
@@ -180,80 +242,7 @@ export default function OptimizationPage() {
           </div>
 
           {/* Detail panel */}
-          <div>
-            {!selected ? (
-              <div className="text-[var(--text-secondary)] text-center py-16">
-                Select an optimization session to explore.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-4 gap-3">
-                  <StatCard
-                    label="Best Fitness"
-                    value={selected.best_trials?.[0]?.fitness?.toFixed(3) ?? "—"}
-                  />
-                  <StatCard
-                    label="Best Trial"
-                    value={`#${selected.best_trials?.[0]?.rank ?? "—"}`}
-                  />
-                  <StatCard
-                    label="Trials"
-                    value={String(selected.best_trials?.length ?? 0)}
-                  />
-                  <StatCard
-                    label="Duration"
-                    value={
-                      selected.execution_duration
-                        ? `${Math.floor(selected.execution_duration / 60)}m`
-                        : "—"
-                    }
-                  />
-                </div>
-
-                <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
-                  <div className="text-[13px] font-semibold text-[var(--text-heading)] mb-3">
-                    Top Trials Parameter Map
-                  </div>
-                  <TrialScatter trials={selected.best_trials ?? []} />
-                </div>
-
-                {/* Top trials table */}
-                <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
-                  <div className="text-[13px] font-semibold text-[var(--text-heading)] mb-3">
-                    Top Trials
-                  </div>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr>
-                        <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">#</th>
-                        <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Fitness</th>
-                        {Object.keys(selected.best_trials?.[0]?.parameters ?? {}).map((p) => (
-                          <th key={p} className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">
-                            {p}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(selected.best_trials ?? []).slice(0, 10).map((trial, i) => (
-                        <tr key={i} className="border-b border-[var(--bg-primary)]">
-                          <td className="py-2 px-2">{trial.rank}</td>
-                          <td className="py-2 px-2 text-[var(--green)]">
-                            {trial.fitness.toFixed(3)}
-                          </td>
-                          {Object.values(trial.parameters).map((v, j) => (
-                            <td key={j} className="py-2 px-2">
-                              {typeof v === "number" ? v.toFixed(2) : String(v)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+          <DetailPanel selected={selected} />
         </div>
       )}
     </div>
