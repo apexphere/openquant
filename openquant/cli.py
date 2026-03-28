@@ -162,23 +162,66 @@ def _format_regime_periods(periods: list) -> str:
 
 
 def _format_metrics(m: dict) -> str:
-    """Format a metrics dict as a readable table."""
+    """Format a metrics dict as a readable table with interpretation."""
     if not m:
         return '  No metrics available.'
+
+    total = m.get('total', 0) or 0
+    sharpe = m.get('sharpe_ratio', 0) or 0
+    max_dd = m.get('max_drawdown', 0) or 0
+    win_rate = (m.get('win_rate', 0) or 0) * 100
+    wl_ratio = m.get('ratio_avg_win_loss', 0) or 0
+    max_underwater = m.get('max_underwater_period', 0) or 0
+    gross_profit = m.get('gross_profit', 0) or 0
+    gross_loss = abs(m.get('gross_loss', 0) or 0)
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
+
     lines = [
         f'  Net PnL:        {m.get("net_profit_percentage", 0):+.2f}%',
         f'  Annual Return:   {m.get("annual_return", 0):.1f}%',
-        f'  Sharpe Ratio:    {m.get("sharpe_ratio", 0):.2f}',
+        f'  Sharpe Ratio:    {sharpe:.2f}{_sharpe_note(sharpe, total)}',
         f'  Sortino Ratio:   {m.get("sortino_ratio", 0):.2f}',
         f'  Calmar Ratio:    {m.get("calmar_ratio", 0):.2f}',
-        f'  Max Drawdown:    {m.get("max_drawdown", 0):.1f}%',
-        f'  Win Rate:        {m.get("win_rate", 0) * 100:.1f}%',
-        f'  Total Trades:    {m.get("total", 0)} '
+        f'  Max Drawdown:    {max_dd:.1f}%{_drawdown_note(max_dd, max_underwater)}',
+        f'  Win Rate:        {win_rate:.1f}%',
+        f'  Total Trades:    {total} '
         f'({m.get("longs_count", 0)}L/{m.get("shorts_count", 0)}S)',
-        f'  Avg Win/Loss:    {m.get("ratio_avg_win_loss", 0):.2f}x',
+        f'  Avg Win/Loss:    {wl_ratio:.2f}x',
+        f'  Profit Factor:   {profit_factor:.2f}{_profit_factor_note(profit_factor)}',
         f'  Expectancy:      {m.get("expectancy_percentage", 0):.2f}%/trade',
     ]
     return '\n'.join(lines)
+
+
+def _sharpe_note(sharpe: float, total: int) -> str:
+    if total < 30:
+        return f'  ⚠ {total} trades — not statistically significant'
+    if total < 100:
+        return f'  ({total} trades — marginal significance)'
+    return ''
+
+
+def _drawdown_note(max_dd: float, max_underwater: float) -> str:
+    parts = []
+    if max_underwater > 0:
+        parts.append(f'{max_underwater:.0f}d underwater')
+    if max_dd < -10:
+        parts.append('severe')
+    elif max_dd < -5:
+        parts.append('moderate')
+    return f'  ({", ".join(parts)})' if parts else ''
+
+
+def _profit_factor_note(pf: float) -> str:
+    if pf == 0:
+        return ''
+    if pf < 1.0:
+        return '  ⚠ losing (< 1.0)'
+    if pf < 1.3:
+        return '  ⚠ fragile (< 1.3)'
+    if pf >= 2.0:
+        return '  strong'
+    return ''
 
 
 def _format_benchmark(b: dict) -> str:
