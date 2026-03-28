@@ -49,6 +49,30 @@ Completed 2026-03-26. CLAUDE.md created with project structure, strategy develop
 **Depends on:** Working regime detector + behaviors (done). Bybit API access for historical data.
 **Added:** 2026-03-28
 
+## P2: Grid Trading Behavior for Ranging Markets
+**What:** Build a GridTradingBehavior that places multiple simultaneous buy/sell limit orders at fixed price intervals across a detected range. Replaces BB mean-reversion as the primary ranging behavior.
+**Why:** Grid trading doesn't predict direction — it captures oscillation. More robust than BB which requires correct band-touch prediction. Crypto markets spend ~70% of time consolidating. Research (arxiv: Dynamic Grid Trading, 2025) shows grid outperforms mean-reversion in sideways markets with proper range detection.
+**Effort:** L (human: ~2 weeks / CC: ~3 hours). Requires extending the behavior protocol to support multi-order submission (current `go_long` submits one entry). Grid needs: range bounds from detector, N grid levels, simultaneous limit orders, order management on fills.
+**Priority:** P2
+**Depends on:** Behavior protocol refactor to support multi-order strategies. Regime detector providing range bounds (upper/lower).
+**Added:** 2026-03-28
+
+## P2: Breakout Behavior for Trend Starts
+**What:** Add BreakoutBehavior to the trending regime as a complement to TrendPullback. Breakout enters on new highs/lows (Donchian channel break), catching the start of trends. Pullback enters mid-trend. Wire both: breakout for first entry, pullback for subsequent entries.
+**Why:** Pullback misses trend starts entirely — it waits for a dip that may not come. The Jul 2025 BTC rally started with a breakout above $107k. A breakout behavior would have caught the first move. BreakoutBehavior already exists in the codebase at `openquant/regime/behaviors/breakout.py`.
+**Effort:** S (human: ~2 days / CC: ~30 min). Behavior exists, needs testing with regime detector + YAML wiring. May need a mechanism to switch from breakout to pullback within the same trending regime.
+**Priority:** P2
+**Depends on:** Nothing — BreakoutBehavior is already built. Needs backtesting and YAML integration.
+**Added:** 2026-03-28
+
+## P2: Per-Asset Detector Tuning
+**What:** Investigate whether detector parameters (EMA periods, MACD settings, separation threshold) should differ per asset. ETH showed 240 days of continuous trending-up which may be correct or may indicate the detector is too slow to detect ETH ranges.
+**Why:** BTC and ETH have different volatility profiles and trend characteristics. One-size-fits-all detector params may leave edge on the table. Each asset's config.yaml can already have different detector params.
+**Effort:** M (human: ~1 week / CC: ~2 hours). Run backtests per asset, compare regime timelines against actual price action, optimize detector params per asset.
+**Priority:** P2
+**Depends on:** Multi-asset data (P1 for all 10, but ETH data already available).
+**Added:** 2026-03-28
+
 ## P3: Multi-Tenant Store Refactor
 **What:** Scope Store (positions, orders, balances) per-user for Phase 3 beta users.
 **Why:** Current architecture is single-tenant. Phase 3 requires multiple users trading simultaneously with isolated state.
