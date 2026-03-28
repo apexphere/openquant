@@ -93,14 +93,70 @@ def get_fitness(
                 fast_mode=fast_mode
             )['metrics']
 
-            # Calculate fitness score
-            score = total_effect_rate * ratio_normalized
+            # Calculate fitness score using TESTING performance as primary signal.
+            # Training score is used only as a floor filter (must be positive).
+            # This prevents overfitting: optimizer rewards params that generalize,
+            # not params that memorize the training period.
+            training_score = total_effect_rate * ratio_normalized
+
+            # Get testing ratio using the same objective function
+            if testing_metrics.get('total', 0) > 0:
+                if objective_function_config == 'sharpe':
+                    testing_ratio = testing_metrics.get('sharpe_ratio', 0)
+                elif objective_function_config == 'calmar':
+                    testing_ratio = testing_metrics.get('calmar_ratio', 0)
+                elif objective_function_config == 'sortino':
+                    testing_ratio = testing_metrics.get('sortino_ratio', 0)
+                elif objective_function_config == 'omega':
+                    testing_ratio = testing_metrics.get('omega_ratio', 0)
+                elif objective_function_config == 'serenity':
+                    testing_ratio = testing_metrics.get('serenity_index', 0)
+                elif objective_function_config == 'smart sharpe':
+                    testing_ratio = testing_metrics.get('smart_sharpe', 0)
+                elif objective_function_config == 'smart sortino':
+                    testing_ratio = testing_metrics.get('smart_sortino', 0)
+                else:
+                    testing_ratio = 0
+
+                testing_total_effect = log10(max(testing_metrics['total'], 1)) / log10(max(optimal_total, 2))
+                testing_total_effect = min(testing_total_effect, 1)
+
+                if objective_function_config == 'sharpe':
+                    testing_ratio_normalized = jh.normalize(testing_ratio, -.5, 5)
+                elif objective_function_config == 'calmar':
+                    testing_ratio_normalized = jh.normalize(testing_ratio, -.5, 30)
+                elif objective_function_config == 'sortino':
+                    testing_ratio_normalized = jh.normalize(testing_ratio, -.5, 15)
+                elif objective_function_config == 'omega':
+                    testing_ratio_normalized = jh.normalize(testing_ratio, -.5, 5)
+                elif objective_function_config == 'serenity':
+                    testing_ratio_normalized = jh.normalize(testing_ratio, -.5, 15)
+                elif objective_function_config == 'smart sharpe':
+                    testing_ratio_normalized = jh.normalize(testing_ratio, -.5, 5)
+                elif objective_function_config == 'smart sortino':
+                    testing_ratio_normalized = jh.normalize(testing_ratio, -.5, 15)
+                else:
+                    testing_ratio_normalized = 0
+
+                testing_score = testing_total_effect * testing_ratio_normalized
+            else:
+                testing_score = 0
+                testing_ratio = 0
+
+            # Final score: 70% testing + 30% training.
+            # Training component prevents degenerate params that happen to
+            # get lucky on a short testing period.
+            score = 0.7 * testing_score + 0.3 * training_score
+
             if np.isnan(score):
                 logger.log_optimize_mode(f'Score is nan. hp configuration is invalid', session_id)
                 score = 0.0001
             else:
-                logger.log_optimize_mode(f"hp config is usable => {objective_function_config}: {round(ratio, 2)}, total: {training_metrics['total']}, "
-                                       f"pnl%: {round(training_metrics['net_profit_percentage'], 2)}%, win-rate: {round(training_metrics['win_rate']*100, 2)}%", session_id)
+                logger.log_optimize_mode(f"hp config => train {objective_function_config}: {round(ratio, 2)}, "
+                                       f"test {objective_function_config}: {round(testing_ratio, 2)}, "
+                                       f"score: {round(score, 4)} (70% test + 30% train), "
+                                       f"total: {training_metrics['total']}, "
+                                       f"pnl%: {round(training_metrics['net_profit_percentage'], 2)}%", session_id)
         else:
             logger.log_optimize_mode('Less than 5 trades in the training data. hp configuration is invalid', session_id)
             score = 0.0001
