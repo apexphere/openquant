@@ -49,13 +49,13 @@ Completed 2026-03-26. CLAUDE.md created with project structure, strategy develop
 **Depends on:** Working regime detector + behaviors (done). Bybit API access for historical data.
 **Added:** 2026-03-28
 
-## P2: Grid Trading Behavior for Ranging Markets
-**What:** Build a GridTradingBehavior that places multiple simultaneous buy/sell limit orders at fixed price intervals across a detected range. Replaces BB mean-reversion as the primary ranging behavior.
-**Why:** Grid trading doesn't predict direction — it captures oscillation. More robust than BB which requires correct band-touch prediction. Crypto markets spend ~70% of time consolidating. Research (arxiv: Dynamic Grid Trading, 2025) shows grid outperforms mean-reversion in sideways markets with proper range detection.
-**Effort:** L (human: ~2 weeks / CC: ~3 hours). Requires extending the behavior protocol to support multi-order submission (current `go_long` submits one entry). Grid needs: range bounds from detector, N grid levels, simultaneous limit orders, order management on fills.
+## P2: Multi-Position Support for Grid Trading
+**What:** Extend the framework to support multiple simultaneous positions per route. Required for true grid trading where you hold buy orders at levels 1, 2, 3 and sell all at level 4. Current framework tracks one position per route — sequential grid (one trade at a time) was tested and failed (725 trades, 8% WR, fees eat profits).
+**Why:** Grid trading captures oscillation without predicting direction. Research (arxiv: Dynamic Grid Trading, 2025) shows it outperforms mean-reversion in sideways markets. But the advantage requires holding multiple positions simultaneously. Sequential one-trade-at-a-time doesn't work (tested 2026-03-28).
+**Effort:** XL (human: ~3 weeks / CC: ~4 hours). Fundamental framework change to Jesse's position model. May require a separate grid engine that manages its own orders outside the behavior protocol.
 **Priority:** P2
-**Depends on:** Behavior protocol refactor to support multi-order strategies. Regime detector providing range bounds (upper/lower).
-**Added:** 2026-03-28
+**Depends on:** Understanding Jesse's order/position internals. May be better as a standalone mode rather than a behavior.
+**Added:** 2026-03-28 (updated from original grid TODO after implementation attempt)
 
 ## P2: Breakout Behavior for Trend Starts
 **What:** Add BreakoutBehavior to the trending regime as a complement to TrendPullback. Breakout enters on new highs/lows (Donchian channel break), catching the start of trends. Pullback enters mid-trend. Wire both: breakout for first entry, pullback for subsequent entries.
