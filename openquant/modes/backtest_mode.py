@@ -226,6 +226,8 @@ def _execute_backtest(
         })
         sync_publish('hyperparameters', result['hyperparameters'])
         sync_publish('metrics', result['metrics'])
+        if result.get('benchmark'):
+            sync_publish('benchmark', result['benchmark'])
         sync_publish('equity_curve', result['equity_curve'], compression=True)
         sync_publish('trades', result['trades'], compression=True)
         if result.get('regime_periods'):
@@ -260,6 +262,10 @@ def _execute_backtest(
                 except Exception:
                     pass
         
+        # Merge benchmark into metrics for storage
+        if result.get('benchmark'):
+            result['metrics']['benchmark'] = result['benchmark']
+
         # Update backtest session in database with results
         from openquant.models.BacktestSession import update_backtest_session_results, update_backtest_session_status
         update_backtest_session_results(
@@ -918,6 +924,7 @@ def _generate_outputs(
     if generate_hyperparameters:
         result["hyperparameters"] = stats.hyperparameters(router.routes)
     result["metrics"] = report.portfolio_metrics()
+    result["benchmark"] = stats.benchmark(result["metrics"])
     result["trades"] = report.trades()
     # generate logs in json, csv and tradingview's pine-editor format
     logs_path = store_logs(generate_json, generate_tradingview, generate_csv)

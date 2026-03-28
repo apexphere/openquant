@@ -181,6 +181,20 @@ def _format_metrics(m: dict) -> str:
     return '\n'.join(lines)
 
 
+def _format_benchmark(b: dict) -> str:
+    """Format benchmark comparison."""
+    if not b:
+        return ''
+    lines = [
+        f'\n  Benchmark ({b.get("symbol", "?")} Buy & Hold):',
+        f'    B&H Return:    {b.get("buy_and_hold_return", 0):+.2f}%',
+        f'    B&H Sharpe:    {b.get("buy_and_hold_sharpe", 0):.2f}',
+        f'    B&H Drawdown:  {b.get("buy_and_hold_max_drawdown", 0):.1f}%',
+        f'    Alpha:         {b.get("alpha", 0):+.2f}%',
+    ]
+    return '\n'.join(lines)
+
+
 @click.group()
 @click.version_option(get_version("openquant"))
 def cli() -> None:
@@ -336,6 +350,10 @@ def results(session_id, limit, json_output) -> None:
                 trades = session.get('trades', [])
                 if trades:
                     click.echo(f'\n  Trade count: {len(trades)}')
+                m = session.get('metrics')
+                bench = m.get('benchmark') if m else None
+                if bench:
+                    click.echo(_format_benchmark(bench))
                 regime_periods = session.get('regime_periods')
                 if regime_periods:
                     click.echo(f'\n{_format_regime_periods(regime_periods)}')

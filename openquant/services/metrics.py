@@ -441,6 +441,65 @@ def trades(trades_list: List[ClosedTrade], daily_balance: list, final: bool = Tr
     }
 
 
+def benchmark(strategy_metrics: dict) -> dict:
+    """Compute buy-and-hold benchmark metrics for the backtest period.
+
+    Returns B&H return, Sharpe, max drawdown, and alpha vs strategy.
+    """
+    from openquant.services.candle_service import get_candles_from_db
+    from openquant.utils import prices_to_returns
+
+    if not router.routes:
+        return None
+
+    r = router.routes[0]
+    try:
+        _, daily_candles = get_candles_from_db(
+            r.exchange, r.symbol, '1D',
+            store.app.starting_time,
+            store.app.ending_time + 1000 * 60 * 60 * 24,
+            is_for_jesse=False, warmup_candles_num=0, caching=True
+        )
+    except Exception:
+        return None
+
+    if daily_candles is None or len(daily_candles) < 2:
+        return None
+
+    closes = daily_candles[:, 2]
+    bnh_return_pct = (closes[-1] - closes[0]) / closes[0] * 100
+
+    daily_returns = prices_to_returns(closes)
+    daily_returns[0] = 0
+    daily_return_series = pd.Series(daily_returns) / 100
+
+    bnh_sharpe = np.nan
+    bnh_max_dd = np.nan
+    if len(daily_return_series) >= 2:
+        bnh_sharpe = sharpe_ratio(daily_return_series, periods=365).iloc[0]
+        bnh_max_dd = max_drawdown(daily_return_series).iloc[0] * 100
+
+    strategy_return = strategy_metrics.get('net_profit_percentage', 0) or 0
+    alpha = strategy_return - bnh_return_pct
+
+    def safe(v):
+        try:
+            if np.isnan(v):
+                return None
+            return round(float(v), 4)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        'symbol': r.symbol,
+        'buy_and_hold_return': safe(bnh_return_pct),
+        'buy_and_hold_sharpe': safe(bnh_sharpe),
+        'buy_and_hold_max_drawdown': safe(bnh_max_dd),
+        'strategy_return': safe(strategy_return),
+        'alpha': safe(alpha),
+    }
+
+
 def hyperparameters(routes_arr: list) -> list:
     if routes_arr[0].strategy.hp is None:
         return []
