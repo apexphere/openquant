@@ -159,24 +159,29 @@ class ProcessManager:
         self._reset()
 
     def _should_auto_resume(self, client_id: str, exit_code: int) -> bool:
-        """Check if a crashed task should be auto-resumed."""
+        """Check if a stopped optimization should be auto-resumed.
+
+        Resumes if: it's an optimization, was not manually terminated,
+        and has incomplete trials. Does NOT rely on exit code because
+        the Termination exception (from is_process_active check) exits
+        with code 0 even though the optimization isn't done.
+        """
         prefixed = self._prefixed_client_id(client_id)
         meta = self._task_meta.get(prefixed)
         if not meta or meta['type'] != 'optimization':
             return False
-        # Only resume if the process crashed (non-zero exit) or was killed
-        # Don't resume if it finished normally (exit code 0) or was cancelled
-        if exit_code == 0:
-            return False
-        # Check if the optimization was manually terminated
         try:
             from openquant.models.OptimizationSession import get_optimization_session_by_id
             session = get_optimization_session_by_id(client_id)
-            if session and session.status in ('terminated', 'finished'):
+            if not session:
                 return False
-            # Only resume if there's progress worth saving
-            if session and session.completed_trials and session.completed_trials > 0:
-                return True
+            # Don't resume if manually terminated or already finished
+            if session.status in ('terminated', 'finished'):
+                return False
+            # Resume if there are incomplete trials
+            if session.completed_trials and session.total_trials:
+                if session.completed_trials < session.total_trials:
+                    return True
         except Exception:
             pass
         return False
