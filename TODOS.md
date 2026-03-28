@@ -49,6 +49,14 @@ Completed 2026-03-26. CLAUDE.md created with project structure, strategy develop
 **Depends on:** Working regime detector + behaviors (done). Bybit API access for historical data.
 **Added:** 2026-03-28
 
+## P1: Custom Dashboard (Next.js)
+**What:** Build a custom web dashboard from scratch, replacing the pre-built Jesse Nuxt 3 dashboard. Designed around regime-aware composition, quality filters, and multi-asset trading.
+**Why:** The Jesse dashboard is a black box (Nuxt 3, no source available). Can't show regime timelines, quality scores, benchmark alpha, optimization queues, or multi-asset views. Every new feature we build has no UI. The dashboard IS the product for future users.
+**Effort:** L (human: ~3 weeks / CC: ~3 days). Next.js + Tailwind, reads from existing API endpoints.
+**Priority:** P1
+**Depends on:** /office-hours design session for page layout, data visualization, workflow design.
+**Added:** 2026-03-29
+
 ## P2: Multi-Position Support for Grid Trading
 **What:** Extend the framework to support multiple simultaneous positions per route. Required for true grid trading where you hold buy orders at levels 1, 2, 3 and sell all at level 4. Current framework tracks one position per route — sequential grid (one trade at a time) was tested and failed (725 trades, 8% WR, fees eat profits).
 **Why:** Grid trading captures oscillation without predicting direction. Research (arxiv: Dynamic Grid Trading, 2025) shows it outperforms mean-reversion in sideways markets. But the advantage requires holding multiple positions simultaneously. Sequential one-trade-at-a-time doesn't work (tested 2026-03-28).
