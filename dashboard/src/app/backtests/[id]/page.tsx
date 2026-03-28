@@ -147,11 +147,11 @@ export default function BacktestDetailPage() {
           />
           <StatCard
             label="Sharpe Ratio"
-            value={metrics.sharpe_ratio.toFixed(2)}
+            value={(metrics.sharpe_ratio ?? 0).toFixed(2)}
           />
           <StatCard
             label="Win Rate"
-            value={`${metrics.win_rate.toFixed(1)}%`}
+            value={`${(metrics.win_rate ?? 0).toFixed(1)}%`}
           />
           <StatCard
             label="vs Buy & Hold"
@@ -245,24 +245,24 @@ export default function BacktestDetailPage() {
             <div className="space-y-3 text-sm">
               <StatRow
                 label="Max Drawdown"
-                value={`${metrics.max_drawdown.toFixed(2)}%`}
+                value={`${(metrics.max_drawdown ?? 0).toFixed(2)}%`}
                 className="text-[var(--red)]"
               />
               <StatRow
                 label="Avg Trade Duration"
-                value={formatHoldingPeriod(metrics.average_holding_period)}
+                value={formatHoldingPeriod(metrics.average_holding_period ?? 0)}
               />
               <StatRow
                 label="Profit Factor"
-                value={metrics.profit_factor.toFixed(2)}
+                value={(metrics.profit_factor ?? 0).toFixed(2)}
               />
               <StatRow
                 label="Win/Loss Ratio"
-                value={metrics.ratio_avg_win_loss.toFixed(2)}
+                value={(metrics.ratio_avg_win_loss ?? 0).toFixed(2)}
               />
               <StatRow
                 label="Total Fees"
-                value={`$${metrics.fee.toFixed(2)}`}
+                value={`$${(metrics.fee ?? 0).toFixed(2)}`}
               />
               <StatRow
                 label="Regime Changes"
@@ -270,7 +270,7 @@ export default function BacktestDetailPage() {
               />
               <StatRow
                 label="Total Trades"
-                value={String(metrics.total)}
+                value={String(metrics.total ?? 0)}
               />
               <StatRow
                 label="Winning Streak"
