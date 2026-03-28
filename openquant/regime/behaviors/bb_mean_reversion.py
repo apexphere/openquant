@@ -48,28 +48,27 @@ class BBMeanReversionBehavior:
         return True
 
     def go_long(self, strategy) -> None:
+        bb = ta.bollinger_bands(strategy.candles, period=strategy.hp['bb_window'],
+                                 devup=strategy.hp['bb_mult'], devdn=strategy.hp['bb_mult'])
         qty = _size(strategy)
+        sl_pct = strategy.hp.get('bb_sl_pct', strategy.hp.get('sl_pct', 0.03))
         strategy.buy = qty, strategy.price
-        strategy.stop_loss = qty, strategy.price * (1 - strategy.hp['sl_pct'])
-        strategy.take_profit = qty, strategy.price * (1 + strategy.hp['tp_pct'])
+        strategy.stop_loss = qty, strategy.price * (1 - sl_pct)
+        # TP targets the middle band (SMA) — natural mean-reversion target
+        strategy.take_profit = qty, bb[0]
 
     def go_short(self, strategy) -> None:
+        bb = ta.bollinger_bands(strategy.candles, period=strategy.hp['bb_window'],
+                                 devup=strategy.hp['bb_mult'], devdn=strategy.hp['bb_mult'])
         qty = _size(strategy)
+        sl_pct = strategy.hp.get('bb_sl_pct', strategy.hp.get('sl_pct', 0.03))
         strategy.sell = qty, strategy.price
-        strategy.stop_loss = qty, strategy.price * (1 + strategy.hp['sl_pct'])
-        strategy.take_profit = qty, strategy.price * (1 - strategy.hp['tp_pct'])
+        strategy.stop_loss = qty, strategy.price * (1 + sl_pct)
+        # TP targets the middle band (SMA)
+        strategy.take_profit = qty, bb[0]
 
     def update_position(self, strategy) -> None:
-        if not strategy.is_long and not strategy.is_short:
-            return
-        if strategy.is_long:
-            trail_price = strategy.price * (1 - strategy.hp['trail_pct'])
-            if trail_price > strategy.average_stop_loss:
-                strategy.stop_loss = strategy.position.qty, trail_price
-        elif strategy.is_short:
-            trail_price = strategy.price * (1 + strategy.hp['trail_pct'])
-            if trail_price < strategy.average_stop_loss:
-                strategy.stop_loss = abs(strategy.position.qty), trail_price
+        pass  # Fixed TP at middle band — no trailing needed for mean-reversion
 
 
 # ── Shared helpers ──────────────────────────────────────────────────
