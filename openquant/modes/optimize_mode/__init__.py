@@ -82,6 +82,18 @@ def run(
     # Check if we're resuming an existing session
     existing_session = get_optimization_session_by_id(session_id)
 
+    # Inject route info into state so dashboard shows strategy name
+    if 'form' not in state:
+        state['form'] = {}
+    if 'routes' not in state.get('form', {}):
+        state['form']['routes'] = [{'symbol': r['symbol'], 'timeframe': r.get('timeframe', '15m'),
+                                     'strategy': r['strategy']} for r in routes]
+    state['form']['exchange'] = exchange
+    state['form']['training_start_date'] = training_start_date
+    state['form']['training_finish_date'] = training_finish_date
+    state['form']['testing_start_date'] = testing_start_date
+    state['form']['testing_finish_date'] = testing_finish_date
+
     if existing_session:
         # Session exists, update it for resuming
         update_optimization_session_status(session_id, 'running')
