@@ -625,17 +625,20 @@ def _extract_sharpe(trial: dict, period: str) -> str:
     return 'N/A'
 
 
-@cli.command('create-composite')
+@cli.command('new-strategy')
 @click.argument('name')
-def create_composite(name) -> None:
-    """Scaffold a new YAML-configured composite strategy.
+@click.option('--simple', is_flag=True, help='Create a simple (non-composite) strategy')
+def new_strategy(name, simple) -> None:
+    """Scaffold a new strategy with boilerplate files.
 
-    Creates strategies/NAME/__init__.py and strategies/NAME/config.yaml
-    with a working template.
+    Creates strategies/NAME/ with __init__.py, config.yaml (composite)
+    or __init__.py (simple), plus thesis.md template.
 
-    Example:
+    Examples:
 
-        jesse create-composite MyTrendRanger
+        jesse new-strategy MyTrendRanger
+
+        jesse new-strategy SimpleMA --simple
     """
     strategy_dir = os.path.join('strategies', name)
     if os.path.exists(strategy_dir):
@@ -644,67 +647,197 @@ def create_composite(name) -> None:
 
     os.makedirs(strategy_dir)
 
-    # Write __init__.py
-    init_content = f'''from openquant.regime.composite import CompositeStrategy
+    if simple:
+        init_content = f'''from openquant.strategies import Strategy
+import openquant.indicators as ta
+
+
+class {name}(Strategy):
+
+    def hyperparameters(self):
+        return [
+            {{'name': 'sma_period', 'type': int, 'min': 10, 'max': 100, 'default': 20}},
+        ]
+
+    def should_long(self) -> bool:
+        return self.price > ta.sma(self.candles, period=self.hp['sma_period'])
+
+    def should_short(self) -> bool:
+        return False
+
+    def go_long(self):
+        qty = (self.balance * 0.05) / self.price
+        self.buy = qty, self.price
+        self.stop_loss = qty, self.price * 0.95
+        self.take_profit = qty, self.price * 1.10
+
+    def go_short(self):
+        pass
+
+    def update_position(self):
+        pass
+
+    def should_cancel_entry(self):
+        return False
+
+    def filters(self):
+        return []
+'''
+        with open(os.path.join(strategy_dir, '__init__.py'), 'w') as f:
+            f.write(init_content)
+    else:
+        init_content = f'''from openquant.regime.composite import CompositeStrategy
 
 
 class {name}(CompositeStrategy):
     config_file = 'config.yaml'
 '''
-    with open(os.path.join(strategy_dir, '__init__.py'), 'w') as f:
-        f.write(init_content)
+        with open(os.path.join(strategy_dir, '__init__.py'), 'w') as f:
+            f.write(init_content)
 
-    # Write config.yaml template
-    config_content = f'''# {name} — composite strategy configuration
-# Docs: see CLAUDE.md "Regime-Aware Composition" section
+        config_content = f'''# {name} — composite strategy configuration
 
 detector:
-  type: adx
-  timeframe: 1D
+  type: ema_adx
   params:
-    sma_period: 42
-    adx_period: 14
-    adx_min: 25
-    confirm_bars: 3
+    fast_period: 13
+    slow_period: 34
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    separation_pct: 0.3
+    confirm_bars: 2
 
 regimes:
-  trending-up:
-    behavior: momentum_rotation
-  trending-down: null              # flat — no trading
-  ranging-up:
-    behavior: bb_mean_reversion
-  ranging-down:
-    behavior: bb_mean_reversion
-  cold-start: null
-
-params:
-  # Risk management
-  risk_pct: 0.05
-  sl_pct: 0.05
-  tp_pct: 0.10
-  trail_pct: 0.02
-  # BB mean reversion
-  bb_window: 15
-  bb_mult: 2.5
-  rsi_period: 14
-  rsi_oversold: 30
-  rsi_overbought: 70
-  vol_mult: 1.2
-  # Momentum rotation
-  momentum_lookback: 42
+  trending-up: trend_pullback
+  trending-down: trend_pullback_short
+  ranging-up: bb_mean_reversion
+  ranging-down: bb_mean_reversion
 
 transitions:
-  on_switch: close_all             # close_all | close_opposite | hold
+  on_switch: close_all
   cooldown_bars: 8
 
-data_routes: [1D, 4h]
-'''
-    with open(os.path.join(strategy_dir, 'config.yaml'), 'w') as f:
-        f.write(config_content)
+params:
+  # Trend pullback (operates on daily candles)
+  pb_timeframe: '1D'
+  pb_fast_ema:
+    default: 13
+    min: 5
+    max: 21
+  pb_slow_ema:
+    default: 34
+    min: 20
+    max: 55
+  pb_rsi_period:
+    default: 14
+    min: 7
+    max: 21
+  pb_rsi_max:
+    default: 70
+    min: 60
+    max: 85
+  pb_rsi_min:
+    default: 30
+    min: 15
+    max: 40
+  pb_atr_period:
+    default: 14
+    min: 7
+    max: 21
+  pb_atr_sl_mult:
+    default: 2.0
+    min: 1.0
+    max: 4.0
 
+  # BB mean-reversion (operates on route timeframe)
+  bb_window:
+    default: 20
+    min: 10
+    max: 50
+  bb_mult:
+    default: 2.0
+    min: 1.5
+    max: 3.0
+  bb_sl_pct:
+    default: 0.015
+    min: 0.005
+    max: 0.03
+  rsi_period:
+    default: 14
+    min: 7
+    max: 21
+  rsi_oversold:
+    default: 35
+    min: 20
+    max: 45
+  rsi_overbought:
+    default: 65
+    min: 55
+    max: 85
+
+  # Shared risk
+  risk_pct:
+    default: 0.05
+    min: 0.02
+    max: 0.15
+  trail_pct:
+    default: 0.03
+    min: 0.01
+    max: 0.10
+  sl_pct:
+    default: 0.05
+    min: 0.02
+    max: 0.10
+  tp_pct:
+    default: 0.10
+    min: 0.05
+    max: 0.30
+'''
+        with open(os.path.join(strategy_dir, 'config.yaml'), 'w') as f:
+            f.write(config_content)
+
+    # Write thesis.md template
+    thesis_content = f'''# Strategy: {name}
+
+## Thesis
+<!-- 1-2 sentences, falsifiable -->
+
+## Evidence
+<!-- Academic papers, historical data, backtest results -->
+
+## Premises
+<!-- Numbered, each challengeable -->
+1.
+
+## Entry Rules
+
+## Exit Rules
+
+## Regime Mapping
+<!-- Which detector, which behavior per regime -->
+
+## Known Weaknesses
+
+## Backtest Results
+
+| Period | Asset | PNL | Sharpe | B&H Return | Alpha | Trades |
+|--------|-------|-----|--------|------------|-------|--------|
+|        |       |     |        |            |       |        |
+
+## Status
+DRAFT
+'''
+    with open(os.path.join(strategy_dir, 'thesis.md'), 'w') as f:
+        f.write(thesis_content)
+
+    files = ['__init__.py', 'thesis.md']
+    if not simple:
+        files.insert(1, 'config.yaml')
     click.echo(f'Created {strategy_dir}/')
-    click.echo(f'  __init__.py  — 3-line boilerplate')
-    click.echo(f'  config.yaml  — edit this to define your strategy')
+    for f_name in files:
+        click.echo(f'  {f_name}')
+    click.echo(f'\nNext: edit thesis.md, then jesse backtest {name} --start ... --finish ...')
     click.echo(f'\nBacktest: jesse backtest {name} --start 2025-06-01 --finish 2025-09-30')
 
 
