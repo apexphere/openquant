@@ -5,7 +5,19 @@ import { StatCard } from "@/components/stat-card";
 import type { OptimizationSession, OptimizationTrial } from "@/lib/types";
 
 function getStrategyName(session: OptimizationSession): string {
-  return session.strategy_name ?? session.state?.form?.routes?.[0]?.strategy ?? "Unknown";
+  if (session.strategy_name) return session.strategy_name;
+  if (session.state?.form?.routes?.[0]?.strategy) return session.state.form.routes[0].strategy;
+  // Fallback: extract class name from strategy_codes
+  const codes = (session as any).strategy_codes;
+  if (codes && typeof codes === "object") {
+    for (const v of Object.values(codes)) {
+      if (typeof v === "string") {
+        const match = (v as string).match(/class\s+(\w+)\s*\(/);
+        if (match) return match[1];
+      }
+    }
+  }
+  return "Unknown";
 }
 
 function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
@@ -140,7 +152,12 @@ export default function OptimizationPage() {
         <div className="grid grid-cols-[300px_1fr] gap-6">
           {/* Session list */}
           <div className="space-y-2">
-            {sessions.filter((s) => s.status === "finished").map((session) => (
+            {sessions.filter((s) => s.status === "finished" || s.status === "running").map((session) => {
+              const completed = (session as any).completed_trials ?? 0;
+              const total = (session as any).total_trials ?? 0;
+              const bestScore = (session as any).best_score;
+              const isRunning = session.status === "running";
+              return (
               <button
                 key={session.id}
                 onClick={() => setSelectedId(session.id)}
@@ -150,11 +167,15 @@ export default function OptimizationPage() {
                     : "border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--text-secondary)]"
                 }`}
               >
-                <div className="font-medium text-sm">{getStrategyName(session)}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-sm">{getStrategyName(session)}</span>
+                  {isRunning && <span className="w-2 h-2 rounded-full bg-[var(--green)] animate-pulse" />}
+                </div>
                 <div className="text-xs text-[var(--text-secondary)] mt-1">
-                  {session.best_trials?.length ?? 0} trials
+                  {completed}/{total} trials{bestScore != null ? ` · best: ${bestScore.toFixed(4)}` : ""}
                 </div>
               </button>
+              );
             ))}
           </div>
 
