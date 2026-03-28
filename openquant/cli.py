@@ -496,6 +496,71 @@ def optimize(strategy, training_start, training_finish, testing_start,
     click.echo('Optimization started. Check the dashboard for progress.')
 
 
+@cli.command('resume-optimize')
+@click.argument('session_id')
+def resume_optimize(session_id) -> None:
+    """Resume a stopped optimization from where it left off.
+
+    Examples:
+
+        jesse optimize-results                          # find session ID
+        jesse resume-optimize 610ed865-26e4-454e-...    # resume it
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    # Get the original session to extract its config
+    data = _api_post(f'/optimization/sessions/{session_id}', {}, server_url, token)
+    session = data.get('session', {})
+    if not session:
+        click.echo(f'Optimization session {session_id} not found.')
+        sys.exit(1)
+
+    status_val = session.get('status', '')
+    if status_val == 'running':
+        click.echo(f'Session is already running ({session.get("completed_trials", 0)}/{session.get("total_trials", 0)} trials).')
+        return
+
+    completed = session.get('completed_trials', 0)
+    total = session.get('total_trials', 0)
+    click.echo(f'Resuming optimization {session_id}')
+    click.echo(f'Progress: {completed}/{total} trials completed')
+
+    # The resume endpoint reuses the same session ID and Optuna study
+    # State from the original session is passed back
+    state = session.get('state', {})
+
+    # Reconstruct the payload from session data
+    # The resume endpoint needs the same config as the original
+    strategy_codes = session.get('strategy_codes', {})
+    if strategy_codes:
+        first_key = next(iter(strategy_codes))
+        parts = first_key.split('-')
+        exchange = parts[0] if parts else 'Bybit USDT Perpetual'
+    else:
+        exchange = 'Bybit USDT Perpetual'
+
+    payload = {
+        'id': session_id,
+        'exchange': exchange,
+        'routes': state.get('routes', [{'symbol': 'BTC-USDT', 'timeframe': '15m', 'strategy': 'unknown'}]),
+        'data_routes': state.get('data_routes', []),
+        'config': state.get('config', {}),
+        'training_start_date': state.get('training_start_date', ''),
+        'training_finish_date': state.get('training_finish_date', ''),
+        'testing_start_date': state.get('testing_start_date', ''),
+        'testing_finish_date': state.get('testing_finish_date', ''),
+        'optimal_total': state.get('optimal_total', 10),
+        'fast_mode': state.get('fast_mode', False),
+        'cpu_cores': state.get('cpu_cores', 4),
+        'state': state,
+    }
+
+    _api_post('/optimization/resume', payload, server_url, token)
+    click.echo(f'Resumed. Continuing from trial {completed}.')
+    click.echo(f'Check progress: jesse optimize-results {session_id}')
+
+
 @cli.command('status')
 def status() -> None:
     """Show running backtests and optimizations.
