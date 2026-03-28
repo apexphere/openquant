@@ -3,6 +3,7 @@ from openquant.regime.behaviors.momentum_rotation import MomentumRotationBehavio
 from openquant.regime.behaviors.trend_follow import TrendFollowBehavior
 from openquant.regime.behaviors.trend_pullback import TrendPullbackBehavior
 from openquant.regime.behaviors.trend_pullback_short import TrendPullbackShortBehavior
+from openquant.regime.behaviors.grid import GridBehavior
 from openquant.regime.behaviors.breakout import BreakoutBehavior
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     'TrendFollowBehavior',
     'TrendPullbackBehavior',
     'TrendPullbackShortBehavior',
+    'GridBehavior',
     'BreakoutBehavior',
 ]

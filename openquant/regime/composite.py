@@ -36,6 +36,7 @@ _BEHAVIOR_REGISTRY = {
     'trend_follow': 'openquant.regime.behaviors.trend_follow.TrendFollowBehavior',
     'trend_pullback': 'openquant.regime.behaviors.trend_pullback.TrendPullbackBehavior',
     'trend_pullback_short': 'openquant.regime.behaviors.trend_pullback_short.TrendPullbackShortBehavior',
+    'grid': 'openquant.regime.behaviors.grid.GridBehavior',
     'breakout': 'openquant.regime.behaviors.breakout.BreakoutBehavior',
 }
 

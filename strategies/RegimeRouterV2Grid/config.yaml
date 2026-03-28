@@ -1,0 +1,48 @@
+# RegimeRouterV2Grid — grid trading in ranges
+# Same detector + pullback behaviors, grid replaces BB in ranging
+
+detector:
+  type: ema_adx
+  params:
+    fast_period: 13
+    slow_period: 34
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    separation_pct: 0.3
+    confirm_bars: 2
+
+regimes:
+  trending-up: trend_pullback
+  trending-down: trend_pullback_short
+  ranging-up: grid
+  ranging-down: grid
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 2
+
+params:
+  # Fixed
+  pb_timeframe: '1D'
+
+  # Pullback params (from Trial 413)
+  pb_fast_ema: 11
+  pb_slow_ema: 29
+  pb_rsi_period: 8
+  pb_rsi_max: 80
+  pb_rsi_min: 39
+  pb_atr_period: 16
+  pb_atr_sl_mult: 1.01
+
+  # Grid params
+  grid_bb_window: 34
+  grid_bb_mult: 2.0
+  grid_num_levels: 8
+  grid_sl_mult: 1.5
+
+  # Shared
+  risk_pct: 0.05
+  trail_pct: 0.053
+  sl_pct: 0.059
+  tp_pct: 0.274
