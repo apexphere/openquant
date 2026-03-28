@@ -26,22 +26,79 @@ transitions:
   cooldown_bars: 8
 
 params:
+  # Fixed (not tunable)
   pb_timeframe: '1D'
-  pb_fast_ema: 11
-  pb_slow_ema: 29
-  pb_rsi_period: 8
-  pb_rsi_max: 80
-  pb_rsi_min: 39
-  pb_atr_period: 16
-  pb_atr_sl_mult: 1.01
-  # BB mean-reversion params (from optimization Trial 1569)
-  bb_window: 34
-  bb_mult: 2.05
-  bb_sl_pct: 0.015
-  rsi_period: 17
-  rsi_oversold: 31
-  rsi_overbought: 79
-  risk_pct: 0.141
-  trail_pct: 0.053
-  sl_pct: 0.059
-  tp_pct: 0.274
+
+  # Trend pullback (long + short)
+  pb_fast_ema:
+    default: 11
+    min: 5
+    max: 21
+  pb_slow_ema:
+    default: 29
+    min: 20
+    max: 55
+  pb_rsi_period:
+    default: 8
+    min: 5
+    max: 21
+  pb_rsi_max:
+    default: 80
+    min: 65
+    max: 90
+  pb_rsi_min:
+    default: 39
+    min: 20
+    max: 45
+  pb_atr_period:
+    default: 16
+    min: 7
+    max: 21
+  pb_atr_sl_mult:
+    default: 1.01
+    min: 0.5
+    max: 3.0
+
+  # BB mean-reversion (ranging)
+  bb_window:
+    default: 34
+    min: 15
+    max: 50
+  bb_mult:
+    default: 2.05
+    min: 1.5
+    max: 3.0
+  bb_sl_pct:
+    default: 0.015
+    min: 0.005
+    max: 0.03
+  rsi_period:
+    default: 17
+    min: 7
+    max: 21
+  rsi_oversold:
+    default: 31
+    min: 20
+    max: 45
+  rsi_overbought:
+    default: 79
+    min: 55
+    max: 85
+
+  # Shared risk
+  risk_pct:
+    default: 0.05
+    min: 0.02
+    max: 0.15
+  trail_pct:
+    default: 0.053
+    min: 0.02
+    max: 0.10
+  sl_pct:
+    default: 0.059
+    min: 0.02
+    max: 0.10
+  tp_pct:
+    default: 0.274
+    min: 0.10
+    max: 0.40
