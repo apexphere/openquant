@@ -160,3 +160,7 @@ storage/temp/
 
 # Backtest results — track configs and reports, not large data files
 results/**/regime_chart.png
+.gstack/
+
+# Dashboard frontend
+dashboard/node_modules/
