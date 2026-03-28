@@ -689,7 +689,7 @@ def optimize_results(session_id, limit, json_output) -> None:
                 else:
                     click.echo(f'  {k}: {v}')
     else:
-        data = _api_post('/optimization/sessions', {'limit': 10}, server_url, token)
+        data = _api_post('/optimization/sessions', {'limit': 20}, server_url, token)
         sessions = data.get('sessions', [])
         if not sessions:
             click.echo('No optimization sessions found.')
@@ -699,15 +699,57 @@ def optimize_results(session_id, limit, json_output) -> None:
             click.echo(json.dumps(sessions, indent=2, default=str))
             return
 
-        click.echo(f'{"ID":<38} {"Status":<10} {"Progress":>10} {"Best":>8}')
-        click.echo('-' * 72)
-        for s in sessions:
+        # Extract strategy name from strategy_codes key (e.g., "Bybit USDT Perpetual-BTC-USDT")
+        def _get_strategy_info(s):
+            codes = s.get('strategy_codes', {})
+            if codes and isinstance(codes, dict):
+                key = next(iter(codes), '')
+                # Parse strategy class name from the code
+                code = codes[key] if isinstance(codes[key], str) else ''
+                for line in code.split('\n'):
+                    if line.startswith('class ') and '(' in line:
+                        return line.split('class ')[1].split('(')[0]
+                parts = key.split('-') if key else []
+                return parts[-1] if len(parts) >= 2 else 'N/A'
+            return 'N/A'
+
+        def _get_symbol(s):
+            codes = s.get('strategy_codes', {})
+            if codes and isinstance(codes, dict):
+                key = next(iter(codes), '')
+                # Key format: "Exchange-SYMBOL" e.g., "Bybit USDT Perpetual-BTC-USDT"
+                if '-USDT' in key:
+                    idx = key.rfind('-USDT')
+                    start = key.rfind('-', 0, idx)
+                    if start >= 0:
+                        return key[start+1:idx+5]
+            return 'N/A'
+
+        # Filter: hide sessions with 0 trials and no progress (dead/failed starts)
+        active = [s for s in sessions if
+                  s.get('completed_trials', 0) > 0 or
+                  s.get('status') in ('running', 'finished')]
+
+        if not active:
+            active = sessions[:5]  # show latest 5 if all are dead
+
+        click.echo(f'{"Strategy":<22} {"Symbol":<10} {"Status":<12} {"Progress":>10} {"Best":>8}')
+        click.echo('-' * 68)
+        for s in active:
             completed = s.get('completed_trials', 0)
             total = s.get('total_trials', 0)
             best = s.get('best_score')
             best_str = f'{best:.4f}' if best is not None else 'N/A'
             progress = f'{completed}/{total}'
-            click.echo(f'{s["id"]:<38} {s.get("status", "?"):<10} {progress:>10} {best_str:>8}')
+            status_val = s.get('status', '?')
+
+            # Add resumable hint
+            if status_val == 'stopped' and completed > 0 and completed < total:
+                status_val = 'resumable'
+
+            strategy = _get_strategy_info(s)
+            symbol = _get_symbol(s)
+            click.echo(f'{strategy:<22} {symbol:<10} {status_val:<12} {progress:>10} {best_str:>8}')
 
 
 def _extract_sharpe(trial: dict, period: str) -> str:
