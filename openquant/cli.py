@@ -668,6 +668,35 @@ def _extract_sharpe(trial: dict, period: str) -> str:
     return 'N/A'
 
 
+@cli.command('import-candles')
+@click.argument('symbol')
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--exchange', default='Bybit USDT Perpetual')
+def import_candles(symbol, start, exchange) -> None:
+    """Import historical candles for a symbol.
+
+    Examples:
+
+        jesse import-candles SOL-USDT --start 2024-06-01
+
+        jesse import-candles BNB-USDT --start 2024-06-01
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+    session_id = str(uuid.uuid4())
+
+    payload = {
+        'id': session_id,
+        'exchange': exchange,
+        'symbol': symbol,
+        'start_date': start,
+    }
+
+    _api_post('/candles/import', payload, server_url, token)
+    click.echo(f'Importing {symbol} from {exchange} starting {start}...')
+    click.echo(f'Check progress in the dashboard (Import Candles tab).')
+
+
 @cli.command('new-strategy')
 @click.argument('name')
 @click.option('--simple', is_flag=True, help='Create a simple (non-composite) strategy')
