@@ -1,0 +1,44 @@
+# RegimeRouterV2Breakout — breakout entries for trends
+# Tests Donchian breakout vs pullback for trend entries
+
+detector:
+  type: ema_adx
+  params:
+    fast_period: 13
+    slow_period: 34
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    separation_pct: 0.3
+    confirm_bars: 2
+
+regimes:
+  trending-up: breakout
+  trending-down: breakout
+  ranging-up: bb_mean_reversion
+  ranging-down: bb_mean_reversion
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 8
+
+params:
+  # Breakout params
+  bo_timeframe: '4h'
+  bo_period: 20
+  bo_atr_period: 14
+  bo_atr_sl_mult: 2.0
+
+  # BB params (from Trial 1173)
+  bb_window: 32
+  bb_mult: 2.86
+  bb_sl_pct: 0.015
+  rsi_period: 15
+  rsi_oversold: 23
+  rsi_overbought: 81
+
+  # Shared
+  risk_pct: 0.105
+  trail_pct: 0.065
+  sl_pct: 0.062
+  tp_pct: 0.179
