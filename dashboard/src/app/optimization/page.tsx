@@ -176,7 +176,7 @@ export default function OptimizationPage() {
                 </div>
               </button>
               );
-            ))}
+            })}
           </div>
 
           {/* Detail panel */}
