@@ -668,6 +668,40 @@ def _extract_sharpe(trial: dict, period: str) -> str:
     return 'N/A'
 
 
+@cli.command('data')
+def data() -> None:
+    """Show available candle data for all symbols.
+
+    Example:
+
+        jesse data
+    """
+    from openquant.services.db import database
+    if database.is_closed():
+        database.open_connection()
+    from openquant.models import Candle
+    from datetime import datetime
+
+    symbols = list(Candle.select(Candle.symbol).distinct())
+    if not symbols:
+        click.echo('No candle data in database.')
+        return
+
+    click.echo(f'{"Symbol":>12}  {"From":>12}  {"To":>12}  {"Candles":>10}  {"Months":>6}')
+    click.echo('-' * 60)
+    for s in sorted(symbols, key=lambda x: x.symbol):
+        first = Candle.select(Candle.timestamp).where(Candle.symbol == s.symbol).order_by(Candle.timestamp.asc()).limit(1).first()
+        last = Candle.select(Candle.timestamp).where(Candle.symbol == s.symbol).order_by(Candle.timestamp.desc()).limit(1).first()
+        count = Candle.select().where(Candle.symbol == s.symbol).count()
+        start = datetime.fromtimestamp(first.timestamp / 1000)
+        end = datetime.fromtimestamp(last.timestamp / 1000)
+        months = round((end - start).days / 30, 1)
+        click.echo(
+            f'{s.symbol:>12}  {start.strftime("%Y-%m-%d"):>12}  '
+            f'{end.strftime("%Y-%m-%d"):>12}  {count:>10}  {months:>5.1f}m'
+        )
+
+
 @cli.command('import-candles')
 @click.argument('symbol')
 @click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
