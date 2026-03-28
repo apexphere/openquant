@@ -67,6 +67,7 @@ async def optimization(request_json: OptimizationRequestJson, authorization: Opt
         request_json.fast_mode,
         request_json.cpu_cores,
         request_json.state,
+        task_type='optimization',
     )
 
     return JSONResponse({
@@ -118,6 +119,7 @@ async def rerun_optimization(request_json: OptimizationRequestJson, authorizatio
         request_json.fast_mode,
         request_json.cpu_cores,
         request_json.state,
+        task_type='optimization',
     )
 
     return JSONResponse({'message': 'Started optimization...'}, status_code=202)
@@ -276,6 +278,7 @@ async def resume_optimization(request_json: OptimizationRequestJson, authorizati
         request_json.fast_mode,
         request_json.cpu_cores,
         request_json.state,
+        task_type='optimization',
     )
 
     return JSONResponse({

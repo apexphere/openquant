@@ -42,17 +42,21 @@ class Process(mp.Process):
 
 
 class ProcessManager:
-    """Manages background processes with a task queue.
+    """Manages background processes with a task queue and auto-recovery.
 
     Only one task runs at a time. Additional tasks are queued and
     started automatically when the current task finishes. This prevents
     concurrent optimizations/backtests from competing for CPU/memory.
+
+    Auto-recovery: if an optimization crashes mid-run, it is automatically
+    re-queued with the same session ID so it resumes from the last trial.
     """
 
     def __init__(self):
         self._workers: List[Process] = []
         self._pid_to_client_id_map = {}
         self.client_id_to_pid_to_map = {}
+        self._task_meta = {}  # client_id -> {function, args, type}
         self._queue: deque = deque()  # pending tasks
         self._queue_lock = threading.Lock()
         try:
@@ -88,7 +92,7 @@ class ProcessManager:
         """Check if any worker is currently running."""
         return any(w.is_alive() for w in self._workers)
 
-    def _start_task(self, function, args):
+    def _start_task(self, function, args, task_type='unknown'):
         """Start a task immediately as a child process."""
         client_id = args[0]
         w = Process(target=function, args=args)
@@ -97,25 +101,30 @@ class ProcessManager:
 
         self._pid_to_client_id_map[self._prefixed_pid(w.pid)] = self._prefixed_client_id(client_id)
         self.client_id_to_pid_to_map[self._prefixed_client_id(client_id)] = self._prefixed_pid(w.pid)
+        self._task_meta[self._prefixed_client_id(client_id)] = {
+            'function': function,
+            'args': args,
+            'type': task_type,
+        }
         self._add_process(client_id)
 
-    def add_task(self, function, *args):
+    def add_task(self, function, *args, task_type='unknown'):
         """Add a task. Starts immediately if no task is running, otherwise queues it."""
         with self._queue_lock:
             if self._has_active_worker():
-                self._queue.append((function, args))
+                self._queue.append((function, args, task_type))
                 jh.debug(f'Task queued (queue size: {len(self._queue)}). Will start when current task finishes.')
             else:
-                self._start_task(function, args)
+                self._start_task(function, args, task_type)
 
     def _start_next_queued(self):
         """Start the next queued task if any."""
         with self._queue_lock:
             if self._queue and not self._has_active_worker():
-                function, args = self._queue.popleft()
+                function, args, task_type = self._queue.popleft()
                 remaining = len(self._queue)
                 jh.debug(f'Starting queued task ({remaining} remaining in queue)')
-                self._start_task(function, args)
+                self._start_task(function, args, task_type)
 
     def get_client_id(self, pid):
         try:
@@ -149,29 +158,60 @@ class ProcessManager:
 
         self._reset()
 
+    def _should_auto_resume(self, client_id: str, exit_code: int) -> bool:
+        """Check if a crashed task should be auto-resumed."""
+        prefixed = self._prefixed_client_id(client_id)
+        meta = self._task_meta.get(prefixed)
+        if not meta or meta['type'] != 'optimization':
+            return False
+        # Only resume if the process crashed (non-zero exit) or was killed
+        # Don't resume if it finished normally (exit code 0) or was cancelled
+        if exit_code == 0:
+            return False
+        # Check if the optimization was manually terminated
+        try:
+            from openquant.models.OptimizationSession import get_optimization_session_by_id
+            session = get_optimization_session_by_id(client_id)
+            if session and session.status in ('terminated', 'finished'):
+                return False
+            # Only resume if there's progress worth saving
+            if session and session.completed_trials and session.completed_trials > 0:
+                return True
+        except Exception:
+            pass
+        return False
+
     def _cleanup_finished_workers(self):
         while True:
             try:
                 cleaned = False
-                for w in self._workers[:]:  # Create a copy of the list to avoid modification during iteration
+                for w in self._workers[:]:
                     if not w.is_alive():
                         try:
-                            # Get the client_id for this worker before removing it
                             client_id = self.get_client_id(w.pid)
+                            exit_code = w.exitcode or 0
 
                             w.join(timeout=1)
                             w.close()
                             self._workers.remove(w)
                             cleaned = True
 
-                            # Remove from Redis active workers set
                             if client_id:
                                 sync_redis.srem(self._active_workers_key, client_id)
-                                jh.debug(f"Removed finished worker {client_id} from active workers")
+
+                                # Auto-resume crashed optimizations
+                                if self._should_auto_resume(client_id, exit_code):
+                                    prefixed = self._prefixed_client_id(client_id)
+                                    meta = self._task_meta.get(prefixed)
+                                    if meta:
+                                        jh.debug(f"Auto-resuming crashed optimization {client_id}")
+                                        with self._queue_lock:
+                                            self._queue.append((meta['function'], meta['args'], meta['type']))
+                                else:
+                                    jh.debug(f"Removed finished worker {client_id} from active workers")
                         except Exception as e:
                             jh.debug(f"Error during worker cleanup: {str(e)}")
 
-                # If a worker finished, try starting the next queued task
                 if cleaned:
                     self._start_next_queued()
             except Exception as e:
