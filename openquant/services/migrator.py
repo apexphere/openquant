@@ -156,6 +156,7 @@ def _monte_carlo_session(migrator):
 def _backtest_session(migrator):
     fields = [
         {'action': migration_actions.ADD, 'name': 'regime_periods', 'type': TextField(null=True)},
+        {'action': migration_actions.ADD, 'name': 'strategy_name', 'type': CharField(null=True)},
     ]
 
     if 'backtestsession' in database.db.get_tables():

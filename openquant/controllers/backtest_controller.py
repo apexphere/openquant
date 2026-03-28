@@ -49,7 +49,8 @@ def backtest(request_json: BacktestRequestJson, authorization: Optional[str] = H
         request_json.export_csv,
         request_json.export_json,
         request_json.fast_mode,
-        request_json.benchmark
+        request_json.benchmark,
+        hyperparameters=request_json.hyperparameters
     )
 
     return JSONResponse({'message': 'Started backtesting...'}, status_code=202)

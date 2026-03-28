@@ -29,6 +29,9 @@ class BacktestSession(peewee.Model):
     description = peewee.TextField(null=True)
     strategy_codes = peewee.TextField(null=True)
     
+    # Strategy identification
+    strategy_name = peewee.CharField(null=True)
+
     # Error tracking
     exception = peewee.TextField(null=True)
     traceback = peewee.TextField(null=True)
@@ -229,11 +232,12 @@ def get_backtest_session_by_id(id: str):
 
 def store_backtest_session(
     id: str,
-    status: str
+    status: str,
+    strategy_name: str = None
 ) -> None:
     # Check if session already exists
     existing_session = get_backtest_session_by_id(id)
-    
+
     if existing_session:
         # Update existing session - reset it to fresh state
         d = {
@@ -244,6 +248,7 @@ def store_backtest_session(
             'hyperparameters': None,
             'chart_data': None,
             'regime_periods': None,
+            'strategy_name': strategy_name,
             'state': None,
             'exception': None,
             'traceback': None,
@@ -256,6 +261,7 @@ def store_backtest_session(
         d = {
             'id': id,
             'status': status,
+            'strategy_name': strategy_name,
             'created_at': jh.now_to_timestamp(True),
             'updated_at': jh.now_to_timestamp(True)
         }

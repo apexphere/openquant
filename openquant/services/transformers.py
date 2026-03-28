@@ -156,6 +156,19 @@ def get_optimization_session_for_load_more(session: OptimizationSession) -> dict
     }
 
 
+def _downsample_equity_curve(equity_curve_text: str, target_points: int = 20) -> list:
+    if not equity_curve_text:
+        return []
+    curve = json.loads(equity_curve_text)
+    if not curve or len(curve) <= target_points:
+        return curve
+    step = max(1, len(curve) // target_points)
+    sampled = curve[::step]
+    if sampled[-1] != curve[-1]:
+        sampled = [*sampled, curve[-1]]
+    return sampled
+
+
 def get_backtest_session(session: BacktestSession) -> dict:
     """
     Transform a BacktestSession model instance into a dictionary for API responses (listing)
@@ -167,6 +180,8 @@ def get_backtest_session(session: BacktestSession) -> dict:
         'updated_at': session.updated_at,
         'execution_duration': session.execution_duration,
         'net_profit_percentage': session.net_profit_percentage,
+        'equity_curve_sample': _downsample_equity_curve(session.equity_curve),
+        'strategy_name': session.strategy_name if hasattr(session, 'strategy_name') else None,
         'state': session.state_json if session.state else None,
         'title': session.title,
         'description': session.description,

@@ -49,13 +49,39 @@ Completed 2026-03-26. CLAUDE.md created with project structure, strategy develop
 **Depends on:** Working regime detector + behaviors (done). Bybit API access for historical data.
 **Added:** 2026-03-28
 
-## P1: Custom Dashboard (Next.js)
-**What:** Build a custom web dashboard from scratch, replacing the pre-built Jesse Nuxt 3 dashboard. Designed around regime-aware composition, quality filters, and multi-asset trading.
-**Why:** The Jesse dashboard is a black box (Nuxt 3, no source available). Can't show regime timelines, quality scores, benchmark alpha, optimization queues, or multi-asset views. Every new feature we build has no UI. The dashboard IS the product for future users.
-**Effort:** L (human: ~3 weeks / CC: ~3 days). Next.js + Tailwind, reads from existing API endpoints.
+## P1: Custom Dashboard (Next.js) — DESIGNED
+**What:** Build a custom web dashboard from scratch, replacing the pre-built Jesse Nuxt 3 dashboard. 5 views: results list, regime timeline deep dive (hero), optimization explorer, strategy comparison, data status. Plus: re-run with modified params, chart export as PNG, URL-based state. Backend changes: hyperparameters override in BacktestRequestJson, sampled equity in list response, default export_chart=True, strategy_name field on BacktestSession.
+**Why:** The Jesse dashboard is a black box that keeps crashing. Can't show regime timelines, quality scores, or optimization landscape. Every new feature has no UI.
+**Effort:** L (human: ~3 weeks / CC: ~3 days). Next.js + Tailwind + shadcn/ui + Recharts.
 **Priority:** P1
-**Depends on:** /office-hours design session for page layout, data visualization, workflow design.
-**Added:** 2026-03-29
+**Design doc:** `~/.gstack/projects/apexphere-openquant/megan-master-design-20260329-084834.md` (APPROVED)
+**CEO plan:** `~/.gstack/projects/apexphere-openquant/ceo-plans/2026-03-29-strategy-cockpit-dashboard.md`
+**Depends on:** Nothing. Ready to implement.
+**Added:** 2026-03-29 | **Reviewed:** 2026-03-29 via /office-hours + /plan-ceo-review
+
+## P2: Dashboard Keyboard Shortcuts
+**What:** j/k to navigate results list rows, Enter to open a result, Escape to go back. Standard power-user keyboard navigation.
+**Why:** With 30+ backtest results, mouse navigation is slow. Every power-user tool (Gmail, GitHub, Vim) has this.
+**Effort:** S (human: ~2 hours / CC: ~10min)
+**Priority:** P2
+**Depends on:** Dashboard v1 shipped.
+**Added:** 2026-03-29 via /plan-ceo-review
+
+## P2: Full Optimization Trial Storage for Parameter Heatmap
+**What:** Modify optimization pipeline to persist ALL trial params/results, not just best N. Enable true 2D parameter heatmap in the dashboard optimization explorer (View 3).
+**Why:** With only best_trials, the scatter plot shows where winners cluster but not the full landscape shape. The full grid reveals parameter sensitivity and helps detect overfitting.
+**Effort:** M (human: ~1 week / CC: ~1 hour). Requires schema change + optimization mode change.
+**Priority:** P2
+**Depends on:** Dashboard v1 shipped.
+**Added:** 2026-03-29 via /plan-ceo-review
+
+## P3: AI-Powered Strategy Diagnostics in Dashboard
+**What:** After viewing a backtest, an AI analyzes the regime timeline and suggests parameter adjustments. E.g., "Your detector classified Feb 2026 as trending-down for 49 days. ADX dropped below 20 on Feb 5. Consider reducing confirmation bars from 3 to 2."
+**Why:** 10x vision. Turns the dashboard from a viewer into a strategy development partner. This is the Layer 2 (AI pipeline) feature from the project direction.
+**Effort:** L (human: ~2 weeks / CC: ~3 hours). LLM integration, prompt engineering, context assembly.
+**Priority:** P3
+**Depends on:** Dashboard v1 + regime data flowing through API.
+**Added:** 2026-03-29 via /plan-ceo-review
 
 ## P2: Multi-Position Support for Grid Trading
 **What:** Extend the framework to support multiple simultaneous positions per route. Required for true grid trading where you hold buy orders at levels 1, 2, 3 and sell all at level 4. Current framework tracks one position per route — sequential grid (one trade at a time) was tested and failed (725 trades, 8% WR, fees eat profits).

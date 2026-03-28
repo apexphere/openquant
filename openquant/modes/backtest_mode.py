@@ -43,7 +43,8 @@ def run(
         csv: bool = False,
         json: bool = False,
         fast_mode: bool = False,
-        benchmark: bool = False
+        benchmark: bool = False,
+        hyperparameters: dict = None
 ) -> None:
     if not jh.is_unit_testing():
         # at every second, we check to see if it's time to execute stuff
@@ -66,7 +67,7 @@ def run(
 
     _execute_backtest(
         client_id, debug_mode, user_config, exchange, routes, data_routes, start_date, finish_date, candles, chart,
-        tradingview, csv, json, fast_mode, benchmark
+        tradingview, csv, json, fast_mode, benchmark, hyperparameters=hyperparameters
     )
 
 
@@ -85,7 +86,8 @@ def _execute_backtest(
         csv: bool = False,
         json: bool = False,
         fast_mode: bool = False,
-        benchmark: bool = False
+        benchmark: bool = False,
+        hyperparameters: dict = None
 ):
     """
     Executes the backtest that has been initiated from within the dashboard. The purpose of extracting these
@@ -123,9 +125,11 @@ def _execute_backtest(
     # Store backtest session in database (only for UI dashboard, not for CLI/research)
     if not jh.should_execute_silently():
         from openquant.models.BacktestSession import store_backtest_session, update_backtest_session_state
+        strategy_name = routes[0]['strategy'] if routes else None
         store_backtest_session(
             id=client_id,
-            status='running'
+            status='running',
+            strategy_name=strategy_name
         )
         # Save route info so dashboard shows strategy name, exchange, symbol
         state = {
@@ -175,6 +179,7 @@ def _execute_backtest(
         result = simulator(
             candles,
             run_silently=jh.should_execute_silently(),
+            hyperparameters=hyperparameters,
             generate_tradingview=tradingview,
             generate_csv=csv,
             generate_json=json,
@@ -205,7 +210,7 @@ def _execute_backtest(
             # retry the backtest simulation
             _execute_backtest(
                 client_id, debug_mode, user_config, exchange, routes, data_routes, start_date, finish_date, candles,
-                chart, tradingview, csv, json, fast_mode, benchmark
+                chart, tradingview, csv, json, fast_mode, benchmark, hyperparameters=hyperparameters
             )
             return
         else:

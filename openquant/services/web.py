@@ -35,6 +35,7 @@ class BacktestRequestJson(BaseModel):
     export_tradingview: bool
     fast_mode: bool
     benchmark: bool
+    hyperparameters: Optional[dict] = None
 
 
 class OptimizationRequestJson(BaseModel):
