@@ -8,16 +8,17 @@ Detection logic:
     separation = (ema_fast - ema_slow) / price * 100
     macd_hist  = MACD histogram value
 
-    Trending-up:   EMA bullish (separation > threshold) AND MACD line > 0
-    Trending-down: EMA bearish (separation < -threshold) AND MACD line < 0
+    Trending-up:   EMA bullish + MACD line > 0
+    Trending-down: EMA bearish + MACD line < 0 + MACD histogram < 0
     Ranging-up:    no trend alignment, price >= slow EMA
     Ranging-down:  no trend alignment, price < slow EMA
 
-    Key insight: uses MACD LINE (not histogram) for the energy gate.
-    The MACD line stays positive during normal pullbacks in uptrends
-    (zero-line bounce). It only crosses zero when the trend genuinely
-    exhausts. The histogram goes negative on every pullback, causing
-    false ranging signals.
+    Asymmetric MACD confirmation:
+    - Uptrends use MACD LINE only (zero-line bounce handles pullbacks)
+    - Downtrends require BOTH line < 0 AND histogram < 0
+      When a downtrend exhausts, histogram turns positive first
+      (selling momentum fading) while line is still negative.
+      This catches downtrend-to-range transitions earlier.
 
 Regimes:
     trending-up    — EMA bullish + MACD momentum confirms
@@ -134,34 +135,35 @@ class EmaAdxDetector:
         slow_ema = ta.ema(candles, period=self.slow_period, sequential=True)[-1]
         current_close = candles[-1, 2]
 
-        # MACD line position relative to zero — NOT histogram.
-        # MACD line stays positive during normal pullbacks in uptrends
-        # (zero-line bounce). It only crosses zero when the trend is
-        # genuinely exhausted. Histogram goes negative on every pullback,
-        # causing false ranging signals.
+        # Asymmetric MACD confirmation:
+        #
+        # Uptrend:   MACD LINE > 0 confirms.
+        #   Line stays positive during pullbacks (zero-line bounce).
+        #   Only crosses zero when trend genuinely exhausts.
+        #
+        # Downtrend: MACD LINE < 0 AND HISTOGRAM < 0 confirms.
+        #   When downtrend exhausts into range, histogram turns positive
+        #   first (selling momentum fading), even while line is still
+        #   negative. Requiring both catches exhaustion earlier.
         macd_result = ta.macd(candles, fast_period=self.macd_fast,
                               slow_period=self.macd_slow,
                               signal_period=self.macd_signal)
-        macd_line = macd_result[0]  # MACD line (not histogram)
+        macd_line = macd_result[0]
+        macd_hist = macd_result[2]
 
-        if np.isnan(fast_ema) or np.isnan(slow_ema) or np.isnan(macd_line) or np.isnan(current_close):
+        if np.isnan(fast_ema) or np.isnan(slow_ema) or np.isnan(macd_line) or np.isnan(macd_hist) or np.isnan(current_close):
             return self._confirmed_regime or 'ranging-up'
 
         if current_close <= 0:
             return self._confirmed_regime or 'ranging-up'
 
         separation = (fast_ema - slow_ema) / current_close * 100
-
-        # Trending: EMA direction + MACD line same side of zero
-        # MACD line > 0 = bullish momentum intact (even during pullbacks)
-        # MACD line < 0 = bearish momentum intact
-        # MACD line crosses zero = trend exhausted → ranging
         ema_bullish = separation > self.separation_pct
         ema_bearish = separation < -self.separation_pct
 
         if ema_bullish and macd_line > 0:
             return 'trending-up'
-        elif ema_bearish and macd_line < 0:
+        elif ema_bearish and macd_line < 0 and macd_hist < 0:
             return 'trending-down'
         elif current_close >= slow_ema:
             return 'ranging-up'

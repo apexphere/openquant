@@ -41,6 +41,14 @@ Completed 2026-03-26. CLAUDE.md created with project structure, strategy develop
 **Depends on:** Nothing.
 **Added:** 2026-03-27 via /plan-ceo-review
 
+## P1: Multi-Asset Support (Top 10 Crypto)
+**What:** Import candle data and enable backtesting/optimization for the top 10 crypto pairs: BTC-USDT, ETH-USDT, SOL-USDT, BNB-USDT, XRP-USDT, DOGE-USDT, ADA-USDT, AVAX-USDT, LINK-USDT, DOT-USDT. Enable multi-route strategies that trade across multiple pairs simultaneously.
+**Why:** MomentumRotation behavior ranks coins by momentum and trades the strongest. Single-symbol backtesting can't validate this. Multi-asset support unlocks rotation strategies, portfolio-level risk management, and cross-asset regime detection.
+**Effort:** M (human: ~1 week / CC: ~2 hours). Data import via `jesse import-candles`, multi-route YAML config, verify backtest engine handles multiple routes.
+**Priority:** P1
+**Depends on:** Working regime detector + behaviors (done). Bybit API access for historical data.
+**Added:** 2026-03-28
+
 ## P3: Multi-Tenant Store Refactor
 **What:** Scope Store (positions, orders, balances) per-user for Phase 3 beta users.
 **Why:** Current architecture is single-tenant. Phase 3 requires multiple users trading simultaneously with isolated state.

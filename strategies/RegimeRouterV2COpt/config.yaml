@@ -34,12 +34,13 @@ params:
   pb_rsi_min: 39
   pb_atr_period: 16
   pb_atr_sl_mult: 1.01
-  bb_window: 10
-  bb_mult: 2.59
-  rsi_period: 13
-  rsi_oversold: 26
-  rsi_overbought: 55
-  vol_mult: 2.97
+  # BB mean-reversion params (from optimization Trial 1569)
+  bb_window: 34
+  bb_mult: 2.05
+  bb_sl_pct: 0.015
+  rsi_period: 17
+  rsi_oversold: 31
+  rsi_overbought: 79
   risk_pct: 0.141
   trail_pct: 0.053
   sl_pct: 0.059
