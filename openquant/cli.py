@@ -253,7 +253,7 @@ def cli() -> None:
 @click.option('--symbol', default='BTC-USDT', help='Trading pair')
 @click.option('--timeframe', default='15m', help='Trading timeframe')
 @click.option('--balance', default=10000.0, type=float, help='Starting balance')
-@click.option('--fee', default=0.001, type=float, help='Trading fee (decimal)')
+@click.option('--fee', default=0.00055, type=float, help='Trading fee (decimal, Bybit taker: 0.055%)')
 @click.option('--warmup', default=210, type=int, help='Warmup candles')
 @click.option('--data-routes', default=None, help='Extra timeframes, comma-separated (e.g., 1D,4h)')
 @click.option('--json-output', is_flag=True, help='Output raw JSON instead of formatted text')
