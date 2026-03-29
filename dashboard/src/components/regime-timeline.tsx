@@ -12,12 +12,12 @@ import {
 import type { RegimePeriod, ChartData } from "@/lib/types";
 
 const REGIME_COLORS: Record<string, string> = {
-  "trending-up": "#0d3117",
-  "trending-down": "#310d0d",
-  "ranging-up": "#1e1e28",
-  "ranging-down": "#1e1e28",
-  ranging: "#1e1e28",
-  "cold-start": "#0d1e31",
+  "trending-up": "#134a25",
+  "trending-down": "#4a1313",
+  "ranging-up": "#2a2a38",
+  "ranging-down": "#2a2a38",
+  ranging: "#2a2a38",
+  "cold-start": "#133044",
 };
 
 const REGIME_TEXT_COLORS: Record<string, string> = {
