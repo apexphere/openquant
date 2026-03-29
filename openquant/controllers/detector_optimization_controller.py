@@ -275,12 +275,16 @@ def preview_detector(
     start_ts = jh.date_to_timestamp(request_json.start_date)
     finish_ts = jh.date_to_timestamp(request_json.finish_date)
 
+    # Load extra candles before start_date for detector warmup (150 days)
+    warmup_ms = 150 * 24 * 60 * 60 * 1000
+    warmup_start_ts = start_ts - warmup_ms
+
     candles_raw = (
         Candle.select()
         .where(
             Candle.exchange == request_json.exchange,
             Candle.symbol == request_json.symbol,
-            Candle.timestamp >= start_ts,
+            Candle.timestamp >= warmup_start_ts,
             Candle.timestamp <= finish_ts,
         )
         .order_by(Candle.timestamp)
@@ -296,10 +300,17 @@ def preview_detector(
 
     daily_candles = _resample_to_timeframe(candles_1m, 1440)
 
-    if len(daily_candles) < 100:
-        return JSONResponse({'error': f'Need 100+ daily candles, got {len(daily_candles)}'}, status_code=400)
+    if len(daily_candles) < 50:
+        return JSONResponse({'error': f'Need 50+ daily candles, got {len(daily_candles)}'}, status_code=400)
 
-    # Run detector bar by bar
+    # Find index where visible range starts (at or after start_date)
+    visible_start_idx = 0
+    for idx in range(len(daily_candles)):
+        if daily_candles[idx, 0] >= start_ts:
+            visible_start_idx = idx
+            break
+
+    # Run detector on ALL candles (including warmup) bar by bar
     DetectorClass = _resolve_detector_class(request_json.detector_type)
     detector = DetectorClass(**request_json.params)
     detector.reset()
@@ -336,9 +347,11 @@ def preview_detector(
             'end': int(daily_candles[-1, 0] / 1000),
         })
 
-    # Build candle data for chart (daily OHLCV, timestamps in seconds)
+    # Only return candles and regimes from the visible range (after start_date)
+    visible_start_ts = int(daily_candles[visible_start_idx, 0] / 1000)
+
     candles_chart = []
-    for row in daily_candles:
+    for row in daily_candles[visible_start_idx:]:
         candles_chart.append({
             'time': int(row[0] / 1000),
             'open': round(float(row[1]), 2),
@@ -348,9 +361,20 @@ def preview_detector(
             'volume': round(float(row[5]), 2),
         })
 
+    # Filter/clip regime periods to visible range
+    visible_regimes = []
+    for rp in regime_periods:
+        if rp['end'] < visible_start_ts:
+            continue
+        visible_regimes.append({
+            'regime': rp['regime'],
+            'start': max(rp['start'], visible_start_ts),
+            'end': rp['end'],
+        })
+
     return JSONResponse({
         'candles': candles_chart,
-        'regime_periods': regime_periods,
+        'regime_periods': visible_regimes,
     })
 
 
