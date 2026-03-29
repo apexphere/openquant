@@ -113,6 +113,24 @@ function TrialScatter({ trials }: { trials: OptimizationTrial[] }) {
   );
 }
 
+function fmtPnl(v: number | null | undefined): string {
+  if (v == null) return "—";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+}
+
+function confidence(trainPnl: number | undefined, testPnl: number | undefined): { score: string; color: string } {
+  if (trainPnl == null || testPnl == null) return { score: "—", color: "var(--text-secondary)" };
+  // Both profitable + testing > 50% of training = high confidence
+  if (testPnl > 0 && trainPnl > 0) {
+    const ratio = testPnl / trainPnl;
+    if (ratio >= 0.5) return { score: (Math.min(ratio, 1.0)).toFixed(2), color: "var(--green)" };
+    if (ratio >= 0.2) return { score: ratio.toFixed(2), color: "var(--yellow)" };
+    return { score: ratio.toFixed(2), color: "var(--red)" };
+  }
+  if (testPnl <= 0) return { score: "0.00", color: "var(--red)" };
+  return { score: "0.00", color: "var(--red)" };
+}
+
 function DetailPanel({ selected }: { selected: any | null }) {
   if (!selected) {
     return (
@@ -125,15 +143,58 @@ function DetailPanel({ selected }: { selected: any | null }) {
   const trials = selected.best_candidates ?? selected.best_trials ?? [];
   const completed = selected.completed_trials ?? 0;
   const total = selected.total_trials ?? 0;
-  const bestScore = selected.best_score ?? trials[0]?.fitness;
+  const isRunning = selected.status === "running";
+
+  // Extract best trial's training/testing PnL
+  const best = trials[0];
+  const trainPnl = best?.training_metrics?.net_profit_percentage;
+  const testPnl = best?.testing_metrics?.net_profit_percentage;
+  const conf = confidence(trainPnl, testPnl);
+
+  // Extract training/testing timeline from state
+  const form = selected.state?.form ?? {};
+  const trainPeriod = form.training_start && form.training_finish
+    ? `${form.training_start} → ${form.training_finish}`
+    : null;
+  const testPeriod = form.testing_start && form.testing_finish
+    ? `${form.testing_start} → ${form.testing_finish}`
+    : null;
+
+  // Duration: for running sessions show elapsed, for finished show execution_duration
+  const durationStr = selected.execution_duration
+    ? `${Math.floor(selected.execution_duration / 60)}m`
+    : isRunning
+      ? "running..."
+      : "—";
 
   return (
     <div className="space-y-4">
+      {/* Timeline info */}
+      {(trainPeriod || testPeriod) && (
+        <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-4 py-3 text-xs text-[var(--text-secondary)]">
+          {trainPeriod && <span>Train: <span className="text-[var(--text-primary)]">{trainPeriod}</span></span>}
+          {trainPeriod && testPeriod && <span className="mx-3">|</span>}
+          {testPeriod && <span>Test: <span className="text-[var(--text-primary)]">{testPeriod}</span></span>}
+        </div>
+      )}
+
       <div className="grid grid-cols-4 gap-3">
-        <StatCard label="Best Fitness" value={bestScore != null ? bestScore.toFixed(4) : "—"} />
-        <StatCard label="Best Trial" value={trials[0] ? `#${trials[0].trial ?? trials[0].rank ?? "—"}` : "—"} />
-        <StatCard label="Trials" value={`${completed}/${total}`} />
-        <StatCard label="Duration" value={selected.execution_duration ? `${Math.floor(selected.execution_duration / 60)}m` : "—"} />
+        <StatCard
+          label="Test PnL"
+          value={fmtPnl(testPnl)}
+          className={testPnl != null && testPnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}
+        />
+        <StatCard
+          label="Train PnL"
+          value={fmtPnl(trainPnl)}
+          className={trainPnl != null && trainPnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}
+        />
+        <StatCard
+          label="Confidence"
+          value={conf.score}
+          className={`text-[${conf.color}]`}
+        />
+        <StatCard label="Trials" value={`${completed}/${total} · ${durationStr}`} />
       </div>
 
       <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
@@ -148,22 +209,31 @@ function DetailPanel({ selected }: { selected: any | null }) {
             <thead>
               <tr>
                 <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">#</th>
-                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Fitness</th>
+                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Test PnL</th>
+                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Train PnL</th>
+                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Conf.</th>
                 {Object.keys(trials[0]?.params ?? trials[0]?.parameters ?? {}).map((p) => (
                   <th key={p} className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">{p}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {trials.slice(0, 10).map((trial: any, i: number) => (
+              {trials.slice(0, 10).map((trial: any, i: number) => {
+                const tTestPnl = trial.testing_metrics?.net_profit_percentage;
+                const tTrainPnl = trial.training_metrics?.net_profit_percentage;
+                const tConf = confidence(tTrainPnl, tTestPnl);
+                return (
                 <tr key={i} className="border-b border-[var(--bg-primary)]">
                   <td className="py-2 px-2">{trial.trial ?? trial.rank}</td>
-                  <td className="py-2 px-2 text-[var(--green)]">{(trial.fitness ?? 0).toFixed(3)}</td>
+                  <td className={`py-2 px-2 ${tTestPnl != null && tTestPnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>{fmtPnl(tTestPnl)}</td>
+                  <td className={`py-2 px-2 ${tTrainPnl != null && tTrainPnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>{fmtPnl(tTrainPnl)}</td>
+                  <td className="py-2 px-2" style={{ color: tConf.color }}>{tConf.score}</td>
                   {Object.values(trial.params ?? trial.parameters ?? {}).map((v: any, j: number) => (
                     <td key={j} className="py-2 px-2">{typeof v === "number" ? v.toFixed(2) : String(v)}</td>
                   ))}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
