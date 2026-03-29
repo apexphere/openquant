@@ -273,6 +273,41 @@ def _build_period(candles: np.ndarray, regime: str, si: int, ei: int) -> dict:
     }
 
 
+def _magnitude_weighted_accuracy(candles: np.ndarray, labels: list) -> float:
+    """Score how well labels match reality, weighted by move size.
+
+    Each bar: if label direction matches price direction, score += |return|.
+    If wrong, score -= |return|. Bigger moves count more.
+    Normalized to [-1, 1]. Positive = better than random.
+    """
+    total_magnitude = 0.0
+    weighted_correct = 0.0
+
+    for i in range(1, len(candles)):
+        lbl = labels[i]
+        if lbl is None:
+            continue
+        ret = candles[i, 2] - candles[i - 1, 2]
+        magnitude = abs(ret)
+        total_magnitude += magnitude
+
+        if magnitude == 0:
+            continue
+
+        # Bullish label + price up = correct. Bearish label + price down = correct.
+        if lbl in _BULLISH_LABELS and ret > 0:
+            weighted_correct += magnitude
+        elif lbl in _BEARISH_LABELS and ret < 0:
+            weighted_correct += magnitude
+        else:
+            weighted_correct -= magnitude
+
+    if total_magnitude == 0:
+        return 0.0
+
+    return weighted_correct / total_magnitude
+
+
 def _directional_accuracy(candles: np.ndarray, labels: list) -> float:
     """Penalize trending labels that go the wrong direction.
 
@@ -300,16 +335,12 @@ def _directional_accuracy(candles: np.ndarray, labels: list) -> float:
 
 
 def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
-    """Composite score. Economic value dominates.
+    """Score = does the labeled regime match reality?
 
-    1. Economic value (50%): Sharpe of regime-following strategy with DD penalty
-    2. Directional accuracy (25%): do labels match actual price direction
-    3. Capture ratio (25%): fraction of up/down moves correctly classified
+    For each regime period, check if the label matched actual price behavior.
+    That's it. No proxy metrics, no synthetic strategies.
 
-    No stability metric — it rewards laziness. A detector that never
-    changes regime scores high on stability but is useless for trading.
-
-    Returns (score, regime_periods). Regime periods include price stats.
+    Returns (score, regime_periods).
     """
     if len(candles) < 100:
         return -1.0, []
@@ -320,17 +351,29 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     if labeled_count < 50:
         return -1.0, []
 
-    capture = _capture_ratio(candles, labels)
-    econ_value = _economic_value(candles, labels)
-    direction = _directional_accuracy(candles, labels)
-
-    score = (
-        0.50 * econ_value
-        + 0.25 * direction
-        + 0.25 * capture
-    )
-
     regime_periods = _labels_to_regime_periods(candles, labels)
+
+    if len(regime_periods) < 2:
+        return -1.0, regime_periods
+
+    # Score each regime period: did the label match what price actually did?
+    # Weight by the size of the move — getting big moves right matters more.
+    total_weight = 0.0
+    total_score = 0.0
+
+    for rp in regime_periods:
+        pct = rp['pct_change']
+        weight = abs(pct)
+        if weight < 0.1:
+            continue  # ignore near-zero moves
+
+        is_bullish = rp['regime'] in ('trending-up', 'ranging-up')
+        correct = (is_bullish and pct > 0) or (not is_bullish and pct < 0)
+
+        total_weight += weight
+        total_score += weight if correct else -weight
+
+    score = total_score / total_weight if total_weight > 0 else 0.0
 
     return score, regime_periods
 
