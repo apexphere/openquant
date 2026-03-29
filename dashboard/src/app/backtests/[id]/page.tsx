@@ -170,10 +170,8 @@ export default function BacktestDetailPage() {
         chartData={chartData ?? null}
         regimePeriods={session.regime_periods ?? null}
         equityCurve={
-          session.equity_curve
-            ? (session.equity_curve as any[]).flatMap((series: any) =>
-                (series.data ?? []).map((pt: any) => ({ time: pt.time, value: pt.value }))
-              )
+          session.equity_curve && (session.equity_curve as any[]).length > 0
+            ? ((session.equity_curve as any[])[0].data ?? []).map((pt: any) => ({ time: pt.time, value: pt.value }))
             : null
         }
         trades={trades ?? undefined}
