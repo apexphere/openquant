@@ -502,7 +502,7 @@ def optimize(strategy, training_start, training_finish, testing_start,
 @click.option('--finish', required=True, help='Finish date (YYYY-MM-DD)')
 @click.option('--exchange', default='Bybit USDT Perpetual')
 @click.option('--symbol', default='BTC-USDT')
-@click.option('--trials', default=200, type=int, help='Number of Optuna trials')
+@click.option('--trials', default=1000, type=int, help='Number of Optuna trials')
 def optimize_detector(detector_type, start, finish, exchange, symbol, trials) -> None:
     """Optimize detector parameters independently from trading behavior.
 

@@ -30,7 +30,7 @@ class DetectorOptimizationRequestJson(BaseModel):
     symbol: str = 'BTC-USDT'
     start_date: str
     finish_date: str
-    trials: int = 200
+    trials: int = 1000
 
 
 def _run_detector_optimization_task(
