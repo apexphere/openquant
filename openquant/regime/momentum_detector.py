@@ -4,24 +4,24 @@ More aggressive than V3. The core idea: EMA direction IS the trend.
 Ranging is only when price is chopping around with no clear direction.
 
 Detection logic:
-    TRENDING-UP:
-        fast EMA > slow EMA (bullish structure)
-        + EMA separation > threshold (not just barely crossing)
-        + price > fast EMA (riding the trend, not pulling back through it)
+    ENTRY (hard — requires conviction):
+        TRENDING-UP:
+            fast EMA > slow EMA + separation > threshold
+            + price > fast EMA (riding the trend)
+        TRENDING-DOWN:
+            fast EMA < slow EMA + separation > threshold
+            + price < fast EMA
 
-    TRENDING-DOWN:
-        fast EMA < slow EMA (bearish structure)
-        + EMA separation > threshold
-        + price < fast EMA
+    STAY (easy — trailing):
+        Once trending, stay trending as long as price holds above/below
+        the SLOW EMA. Pullbacks to fast EMA are normal and tolerated.
+
+    EXIT (trailing — slow EMA break):
+        Trending-up ends: price < slow EMA (structural support lost)
+        Trending-down ends: price > slow EMA (resistance reclaimed)
 
     RANGING:
-        EMA separation < threshold (no clear direction)
-        OR price between EMAs (indecisive)
-        ranging-up if price >= slow EMA, ranging-down otherwise
-
-    EXIT:
-        Trending-up ends: price crosses below fast EMA (momentum lost)
-        Trending-down ends: price crosses above fast EMA
+        Not trending. ranging-up if price >= slow EMA, else ranging-down.
 
 Why more aggressive than V3:
     - V3 required Donchian breakout (new high) for uptrends. V4 just needs
@@ -133,29 +133,37 @@ class MomentumDetector:
         price_above_fast = current_close > fast_ema_val
         price_below_fast = current_close < fast_ema_val
 
-        # ── TRENDING CONDITIONS ──
-        # Aggressive: just need EMA alignment + price confirmation
-        trending_up = emas_bullish and price_above_fast
-        trending_down = emas_bearish and price_below_fast
+        # ── ENTRY: requires conviction (EMA alignment + price confirms) ──
+        trending_up_entry = emas_bullish and price_above_fast
+        trending_down_entry = emas_bearish and price_below_fast
+
+        # ── EXIT: trailing (only exit on slow EMA break, not fast) ──
+        #    Trend gets room to breathe. Pullbacks to fast EMA are normal.
+        #    Only lose the trend when price breaks the slow EMA.
+        lost_uptrend = current_close < slow_ema_val
+        lost_downtrend = current_close > slow_ema_val
 
         # ── STATE MACHINE ──
+        #
+        #   Entry: hard (EMA separated + price above/below fast)
+        #   Stay:  easy (just hold above/below slow EMA)
+        #   Exit:  trailing (break slow EMA = trend over)
+
         if self._confirmed_regime == 'trending-up':
-            # Stay trending-up unless price drops below fast EMA
-            if price_below_fast:
-                return 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
+            if lost_uptrend:
+                return 'ranging-down'
             return 'trending-up'
 
         elif self._confirmed_regime == 'trending-down':
-            # Stay trending-down unless price rises above fast EMA
-            if price_above_fast:
-                return 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
+            if lost_downtrend:
+                return 'ranging-up'
             return 'trending-down'
 
         else:
             # Ranging: look for trend entry
-            if trending_up:
+            if trending_up_entry:
                 return 'trending-up'
-            elif trending_down:
+            elif trending_down_entry:
                 return 'trending-down'
             else:
                 return 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
