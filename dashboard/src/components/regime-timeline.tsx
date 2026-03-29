@@ -15,8 +15,8 @@ import type { RegimePeriod, ChartData } from "@/lib/types";
 const REGIME_COLORS: Record<string, string> = {
   "trending-up": "#134a25",
   "trending-down": "#4a1313",
-  "ranging-up": "#2a2a38",
-  "ranging-down": "#2a2a38",
+  "ranging-up": "#1a2a3a",
+  "ranging-down": "#2a1a30",
   ranging: "#2a2a38",
   "cold-start": "#133044",
 };
@@ -24,8 +24,8 @@ const REGIME_COLORS: Record<string, string> = {
 const REGIME_TEXT_COLORS: Record<string, string> = {
   "trending-up": "#3fb950",
   "trending-down": "#f85149",
-  "ranging-up": "#8b949e",
-  "ranging-down": "#8b949e",
+  "ranging-up": "#58a6ff",
+  "ranging-down": "#d2a8ff",
   ranging: "#8b949e",
   "cold-start": "#58a6ff",
 };

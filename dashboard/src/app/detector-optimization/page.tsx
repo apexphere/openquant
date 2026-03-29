@@ -56,8 +56,8 @@ interface RegimeDetail {
 const REGIME_LABEL_COLORS: Record<string, string> = {
   "trending-up": "var(--green)",
   "trending-down": "var(--red)",
-  "ranging-up": "var(--text-secondary)",
-  "ranging-down": "var(--text-secondary)",
+  "ranging-up": "var(--blue)",
+  "ranging-down": "var(--purple)",
 };
 
 function DetailPanel({
