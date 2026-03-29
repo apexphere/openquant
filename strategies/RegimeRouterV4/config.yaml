@@ -15,6 +15,7 @@ detector:
     chop_ranging: 53.48
     chop_trending: 41.91
     confirm_bars: 12
+    timeframe: '4h'
 
 regimes:
   trending-up: trend_pullback
