@@ -343,15 +343,16 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
 def _get_detector_param_ranges(detector_type: str) -> dict:
     """Return optimizable parameter ranges for each detector type."""
     if detector_type == 'breakout_v3':
+        # Ranges scaled for 4h candles (6 bars per day)
         return {
-            'breakout_period': {'type': int, 'min': 10, 'max': 40},
-            'fast_ema': {'type': int, 'min': 5, 'max': 21},
-            'slow_ema': {'type': int, 'min': 21, 'max': 55},
+            'breakout_period': {'type': int, 'min': 60, 'max': 240},
+            'fast_ema': {'type': int, 'min': 30, 'max': 126},
+            'slow_ema': {'type': int, 'min': 126, 'max': 330},
             'separation_pct': {'type': float, 'min': 0.1, 'max': 1.0},
-            'macd_fast': {'type': int, 'min': 8, 'max': 16},
-            'macd_slow': {'type': int, 'min': 20, 'max': 34},
-            'macd_signal': {'type': int, 'min': 5, 'max': 14},
-            'confirm_bars': {'type': int, 'min': 1, 'max': 4},
+            'macd_fast': {'type': int, 'min': 48, 'max': 96},
+            'macd_slow': {'type': int, 'min': 120, 'max': 204},
+            'macd_signal': {'type': int, 'min': 30, 'max': 84},
+            'confirm_bars': {'type': int, 'min': 6, 'max': 24},
         }
     elif detector_type == 'ema_adx':
         return {
@@ -364,11 +365,12 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'confirm_bars': {'type': int, 'min': 1, 'max': 4},
         }
     elif detector_type == 'momentum_v4':
+        # Ranges scaled for 4h candles (6 bars per day)
         return {
-            'fast_ema': {'type': int, 'min': 5, 'max': 21},
-            'slow_ema': {'type': int, 'min': 21, 'max': 55},
+            'fast_ema': {'type': int, 'min': 30, 'max': 126},
+            'slow_ema': {'type': int, 'min': 126, 'max': 330},
             'separation_pct': {'type': float, 'min': 0.05, 'max': 0.5},
-            'confirm_bars': {'type': int, 'min': 0, 'max': 3},
+            'confirm_bars': {'type': int, 'min': 0, 'max': 18},
         }
     else:
         return {}
