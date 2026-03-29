@@ -1,4 +1,5 @@
 "use client";
+import { useState, useCallback } from "react";
 import {
   ComposedChart,
   Line,
@@ -29,6 +30,14 @@ const REGIME_TEXT_COLORS: Record<string, string> = {
   "cold-start": "#58a6ff",
 };
 
+interface CandleRecord {
+  time: number;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+}
+
 interface EquityCurvePoint {
   time: number;
   value: number;
@@ -45,6 +54,75 @@ interface RegimeTimelineProps {
     entry_price: number;
     exit_price: number;
   }>;
+}
+
+function fmtDate(ts: number): string {
+  return new Date(ts * 1000).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function fmtPrice(v: number): string {
+  return v >= 1000 ? `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : `$${v.toFixed(2)}`;
+}
+
+interface RegimeStats {
+  regime: string;
+  startDate: string;
+  endDate: string;
+  startPrice: number;
+  endPrice: number;
+  high: number;
+  low: number;
+  pctChange: number;
+  days: number;
+}
+
+function computeRegimeStats(
+  period: RegimePeriod,
+  candles: CandleRecord[]
+): RegimeStats | null {
+  if (candles.length === 0) return null;
+
+  const startTs = period.start;
+  const endTs = period.end;
+
+  const inRange = candles.filter((c) => c.time >= startTs && c.time <= endTs);
+  if (inRange.length === 0) return null;
+
+  const startCandle = inRange[0];
+  const endCandle = inRange[inRange.length - 1];
+  const high = Math.max(...inRange.map((c) => c.high));
+  const low = Math.min(...inRange.map((c) => c.low));
+  const pctChange =
+    startCandle.close > 0
+      ? ((endCandle.close - startCandle.close) / startCandle.close) * 100
+      : 0;
+  const days = Math.round((endTs - startTs) / 86400);
+
+  return {
+    regime: period.regime,
+    startDate: fmtDate(startTs),
+    endDate: fmtDate(endTs),
+    startPrice: startCandle.close,
+    endPrice: endCandle.close,
+    high,
+    low,
+    pctChange,
+    days,
+  };
+}
+
+function formatStatsText(stats: RegimeStats): string {
+  const sign = stats.pctChange >= 0 ? "+" : "";
+  return [
+    `Regime: ${stats.regime}`,
+    `Period: ${stats.startDate} - ${stats.endDate} (${stats.days}d)`,
+    `Start: ${fmtPrice(stats.startPrice)}  End: ${fmtPrice(stats.endPrice)}  (${sign}${stats.pctChange.toFixed(2)}%)`,
+    `High: ${fmtPrice(stats.high)}  Low: ${fmtPrice(stats.low)}`,
+  ].join("\n");
 }
 
 function lttbDownsample(
@@ -65,7 +143,6 @@ function lttbDownsample(
       data.length - 1
     );
 
-    // Average of next bucket for area calculation
     let avgX = 0;
     let avgY = 0;
     for (let j = rangeStart; j < rangeEnd; j++) {
@@ -75,7 +152,6 @@ function lttbDownsample(
     avgX /= rangeEnd - rangeStart || 1;
     avgY /= rangeEnd - rangeStart || 1;
 
-    // Find point in current bucket with largest triangle area
     const currStart = Math.floor(i * bucketSize) + 1;
     const currEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, data.length);
 
@@ -101,44 +177,187 @@ function lttbDownsample(
   return sampled;
 }
 
+function RegimeTooltip({ stats }: { stats: RegimeStats }) {
+  const sign = stats.pctChange >= 0 ? "+" : "";
+  const changeColor =
+    stats.pctChange >= 0 ? "text-[var(--green)]" : "text-[var(--red)]";
+
+  return (
+    <div className="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-2 shadow-lg text-xs min-w-[200px]">
+      <div
+        className="font-semibold mb-1.5"
+        style={{ color: REGIME_TEXT_COLORS[stats.regime] ?? "#8b949e" }}
+      >
+        {stats.regime.toUpperCase().replace("-", " ")}
+      </div>
+      <div className="space-y-0.5 text-[var(--text-secondary)]">
+        <div>
+          {stats.startDate} &rarr; {stats.endDate}{" "}
+          <span className="text-[var(--text-primary)]">({stats.days}d)</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span>
+            Start:{" "}
+            <span className="text-[var(--text-primary)]">
+              {fmtPrice(stats.startPrice)}
+            </span>
+          </span>
+          <span>
+            End:{" "}
+            <span className="text-[var(--text-primary)]">
+              {fmtPrice(stats.endPrice)}
+            </span>
+          </span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span>
+            High:{" "}
+            <span className="text-[var(--text-primary)]">
+              {fmtPrice(stats.high)}
+            </span>
+          </span>
+          <span>
+            Low:{" "}
+            <span className="text-[var(--text-primary)]">
+              {fmtPrice(stats.low)}
+            </span>
+          </span>
+        </div>
+        <div className={changeColor}>
+          {sign}
+          {stats.pctChange.toFixed(2)}%
+        </div>
+      </div>
+      <div className="text-[10px] text-[var(--text-secondary)] mt-1.5 border-t border-[var(--border)] pt-1">
+        Click to copy
+      </div>
+    </div>
+  );
+}
+
 export function RegimeTimeline({
   chartData,
   regimePeriods,
   equityCurve,
   trades,
 }: RegimeTimelineProps) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Extract full candle records (with OHLC) for regime stats
+  let fullCandles: CandleRecord[] = [];
+  if (chartData?.candles_chart) {
+    const candlesList = chartData.candles_chart as any;
+    const rawCandles =
+      Array.isArray(candlesList) &&
+      candlesList.length > 0 &&
+      candlesList[0].candles
+        ? candlesList[0].candles
+        : candlesList;
+    fullCandles = rawCandles.map((c: any) => ({
+      time: c.time ?? c[0],
+      open: c.open ?? c[1],
+      close: c.close ?? c[4] ?? c[2],
+      high: c.high ?? c[3],
+      low: c.low ?? c[4],
+    }));
+  }
+
+  const handleRegimeClick = useCallback(
+    (period: RegimePeriod) => {
+      const stats = computeRegimeStats(period, fullCandles);
+      if (!stats) return;
+      const text = formatStatsText(stats);
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    },
+    [fullCandles]
+  );
+
   if (!regimePeriods && !chartData && !equityCurve) {
     return (
       <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
         <div className="text-[var(--text-secondary)] text-center py-8">
-          No regime or chart data available. Run a backtest with a regime detector enabled.
+          No regime or chart data available. Run a backtest with a regime
+          detector enabled.
         </div>
       </div>
     );
   }
 
-  // Regime bar (always shown if regimePeriods exist)
+  // Regime bar with hover tooltip + click to copy
   const regimeBar = regimePeriods && regimePeriods.length > 0 && (
-    <div className="flex h-7 rounded overflow-hidden mb-2">
-      {regimePeriods.map((period, i) => {
+    <div className="relative">
+      <div className="flex h-7 rounded overflow-hidden mb-2">
+        {regimePeriods.map((period, i) => {
+          const totalDuration =
+            regimePeriods[regimePeriods.length - 1].end -
+            regimePeriods[0].start;
+          const width = ((period.end - period.start) / totalDuration) * 100;
+          const regime = period.regime;
+          return (
+            <div
+              key={i}
+              className="flex items-center justify-center text-[10px] font-semibold tracking-wide cursor-pointer transition-opacity"
+              style={{
+                width: `${width}%`,
+                backgroundColor:
+                  REGIME_COLORS[regime] ?? "rgba(139,148,158,0.1)",
+                color: REGIME_TEXT_COLORS[regime] ?? "#8b949e",
+                opacity: hoveredIdx !== null && hoveredIdx !== i ? 0.4 : 1,
+              }}
+              onMouseEnter={() => setHoveredIdx(i)}
+              onMouseLeave={() => setHoveredIdx(null)}
+              onClick={() => handleRegimeClick(period)}
+            >
+              {width > 8 ? regime.toUpperCase().replace("-", " ") : ""}
+            </div>
+          );
+        })}
+      </div>
+      {/* Tooltip */}
+      {hoveredIdx !== null && regimePeriods[hoveredIdx] && (() => {
+        const stats = computeRegimeStats(
+          regimePeriods[hoveredIdx],
+          fullCandles
+        );
+        if (!stats) return null;
+
+        // Position tooltip based on regime bar segment position
         const totalDuration =
-          regimePeriods[regimePeriods.length - 1].end - regimePeriods[0].start;
-        const width = ((period.end - period.start) / totalDuration) * 100;
-        const regime = period.regime;
+          regimePeriods[regimePeriods.length - 1].end -
+          regimePeriods[0].start;
+        let leftPct = 0;
+        for (let j = 0; j < hoveredIdx; j++) {
+          leftPct +=
+            ((regimePeriods[j].end - regimePeriods[j].start) / totalDuration) *
+            100;
+        }
+        const segWidth =
+          ((regimePeriods[hoveredIdx].end - regimePeriods[hoveredIdx].start) /
+            totalDuration) *
+          100;
+        const centerPct = leftPct + segWidth / 2;
+        // Clamp so tooltip doesn't overflow
+        const clampedPct = Math.max(15, Math.min(85, centerPct));
+
         return (
           <div
-            key={i}
-            className="flex items-center justify-center text-[10px] font-semibold tracking-wide"
-            style={{
-              width: `${width}%`,
-              backgroundColor: REGIME_COLORS[regime] ?? "rgba(139,148,158,0.1)",
-              color: REGIME_TEXT_COLORS[regime] ?? "#8b949e",
-            }}
+            className="absolute z-20 -translate-x-1/2"
+            style={{ left: `${clampedPct}%`, top: "32px" }}
           >
-            {width > 8 ? regime.toUpperCase().replace("-", " ") : ""}
+            <RegimeTooltip stats={stats} />
           </div>
         );
-      })}
+      })()}
+      {/* Copied feedback */}
+      {copied && (
+        <div className="absolute top-0 right-0 text-[10px] text-[var(--green)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">
+          Copied!
+        </div>
+      )}
     </div>
   );
 
@@ -148,36 +367,36 @@ export function RegimeTimeline({
   const hasEquity = equityCurve && equityCurve.length > 0;
 
   if (hasCandles || hasEquity) {
-    // Build price data
-    // Extract candle data — candles_chart is [{exchange, symbol, timeframe, candles: [{time, open, close, high, low, volume}]}]
     let priceData: Array<{ time: number; close: number }> = [];
     if (hasCandles) {
-      const candlesList = (chartData!.candles_chart as any);
-      const rawCandles = Array.isArray(candlesList) && candlesList.length > 0 && candlesList[0].candles
-        ? candlesList[0].candles
-        : candlesList;
+      const candlesList = chartData!.candles_chart as any;
+      const rawCandles =
+        Array.isArray(candlesList) &&
+        candlesList.length > 0 &&
+        candlesList[0].candles
+          ? candlesList[0].candles
+          : candlesList;
       const raw = rawCandles.map((c: any) => ({
-        time: (c.time ?? c[0]) * 1000, // convert seconds to ms
+        time: (c.time ?? c[0]) * 1000,
         close: c.close ?? c[4],
       }));
       priceData = lttbDownsample(raw, 2000);
     }
 
-    // Build equity data — already daily, times in seconds
     const equityData: Array<{ time: number; value: number }> = [];
     if (hasEquity) {
       for (const pt of equityCurve!) {
-        equityData.push({ time: pt.time * 1000, value: pt.value }); // seconds to ms
+        equityData.push({ time: pt.time * 1000, value: pt.value });
       }
     }
 
-    // Merge: price as base, map equity value for each price point
-    // Use binary search to find the closest equity point <= each price timestamp
     function findEquityValue(time: number): number | undefined {
       if (equityData.length === 0) return undefined;
       if (time <= equityData[0].time) return equityData[0].value;
-      if (time >= equityData[equityData.length - 1].time) return equityData[equityData.length - 1].value;
-      let lo = 0, hi = equityData.length - 1;
+      if (time >= equityData[equityData.length - 1].time)
+        return equityData[equityData.length - 1].value;
+      let lo = 0,
+        hi = equityData.length - 1;
       while (lo < hi - 1) {
         const mid = Math.floor((lo + hi) / 2);
         if (equityData[mid].time <= time) lo = mid;
@@ -197,7 +416,10 @@ export function RegimeTimeline({
     } else if (priceData.length > 0) {
       mergedData = priceData.map((p) => ({ time: p.time, close: p.close }));
     } else if (equityData.length > 0) {
-      mergedData = equityData.map((pt) => ({ time: pt.time, equity: pt.value }));
+      mergedData = equityData.map((pt) => ({
+        time: pt.time,
+        equity: pt.value,
+      }));
     } else {
       mergedData = [];
     }
@@ -213,7 +435,6 @@ export function RegimeTimeline({
             tick={false}
             axisLine={{ stroke: "var(--border)" }}
           />
-          {/* Left axis: Price */}
           {hasCandles && (
             <YAxis
               yAxisId="price"
@@ -224,11 +445,12 @@ export function RegimeTimeline({
               tickLine={false}
               width={60}
               tickFormatter={(v: number) =>
-                v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`
+                v >= 1000
+                  ? `$${(v / 1000).toFixed(1)}k`
+                  : `$${v.toFixed(0)}`
               }
             />
           )}
-          {/* Right axis: Equity */}
           {hasEquity && (
             <YAxis
               yAxisId="equity"
@@ -257,7 +479,6 @@ export function RegimeTimeline({
             ]}
           />
 
-          {/* Regime background shading — full height colored bands */}
           {regimePeriods?.map((period, i) => (
             <ReferenceArea
               key={i}
@@ -271,7 +492,6 @@ export function RegimeTimeline({
             />
           ))}
 
-          {/* Price line */}
           {hasCandles && (
             <Line
               yAxisId="price"
@@ -285,10 +505,9 @@ export function RegimeTimeline({
             />
           )}
 
-          {/* Equity curve */}
           {hasEquity && (
             <Line
-              yAxisId={hasCandles ? "equity" : "equity"}
+              yAxisId="equity"
               type="monotone"
               dataKey="equity"
               stroke="var(--green)"
@@ -298,32 +517,34 @@ export function RegimeTimeline({
             />
           )}
 
-          {/* Trade entry markers */}
-          {hasCandles && trades?.map((trade, i) => (
-            <ReferenceDot
-              key={`entry-${i}`}
-              x={trade.opened_at}
-              y={trade.entry_price}
-              yAxisId="price"
-              r={4}
-              fill={trade.type === "long" ? "var(--green)" : "var(--red)"}
-              stroke="none"
-            />
-          ))}
+          {hasCandles &&
+            trades?.map((trade, i) => (
+              <ReferenceDot
+                key={`entry-${i}`}
+                x={trade.opened_at}
+                y={trade.entry_price}
+                yAxisId="price"
+                r={4}
+                fill={
+                  trade.type === "long" ? "var(--green)" : "var(--red)"
+                }
+                stroke="none"
+              />
+            ))}
 
-          {/* Trade exit markers */}
-          {hasCandles && trades?.map((trade, i) => (
-            <ReferenceDot
-              key={`exit-${i}`}
-              x={trade.closed_at}
-              y={trade.exit_price}
-              yAxisId="price"
-              r={3}
-              fill="none"
-              stroke="var(--text-secondary)"
-              strokeWidth={1.5}
-            />
-          ))}
+          {hasCandles &&
+            trades?.map((trade, i) => (
+              <ReferenceDot
+                key={`exit-${i}`}
+                x={trade.closed_at}
+                y={trade.exit_price}
+                yAxisId="price"
+                r={3}
+                fill="none"
+                stroke="var(--text-secondary)"
+                strokeWidth={1.5}
+              />
+            ))}
         </ComposedChart>
       </ResponsiveContainer>
     );
@@ -343,7 +564,8 @@ export function RegimeTimeline({
       <div className="flex gap-4 mt-2 text-[11px] text-[var(--text-secondary)]">
         {hasCandles && (
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-[var(--text-secondary)]" /> Price
+            <span className="w-2 h-2 rounded-sm bg-[var(--text-secondary)]" />{" "}
+            Price
           </span>
         )}
         {hasEquity && (
@@ -352,13 +574,16 @@ export function RegimeTimeline({
           </span>
         )}
         <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-[var(--green)]" /> Long Entry
+          <span className="w-2 h-2 rounded-full bg-[var(--green)]" /> Long
+          Entry
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-[var(--red)]" /> Short Entry
+          <span className="w-2 h-2 rounded-full bg-[var(--red)]" /> Short
+          Entry
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full border border-[var(--text-secondary)]" /> Exit
+          <span className="w-2 h-2 rounded-full border border-[var(--text-secondary)]" />{" "}
+          Exit
         </span>
       </div>
     </div>
