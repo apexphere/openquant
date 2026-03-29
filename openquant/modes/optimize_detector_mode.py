@@ -1,17 +1,15 @@
 """Detector parameter optimization.
 
 Optimizes regime detector params independently from trading behavior.
-Scores based on regime classification accuracy: do the detected regimes
-match actual price movements?
+Uses a composite score of 4 metrics:
 
-Scoring logic:
-    For each regime period, measure the actual price change:
-    - trending-up period:   reward if price went up, penalize if down
-    - trending-down period: reward if price went down, penalize if up
-    - ranging periods:      reward if price stayed flat (low % change)
-
-    Final score = mean(period_scores) weighted by period duration.
-    Range: -1.0 (perfectly wrong) to +1.0 (perfectly right).
+1. Capture ratio (25%): What fraction of up/down moves did the detector
+   correctly classify as trending-up/trending-down?
+2. Stability (20%): Penalizes whipsawing — short-lived regime flips.
+3. Regime-conditional Sharpe (25%): Do the regime labels actually separate
+   return distributions? trending-up should have positive Sharpe, etc.
+4. Economic value (30%): Sharpe ratio of a simple regime-following strategy
+   (long in trending-up, short in trending-down, flat in ranging).
 
 Usage:
     python -m openquant.modes.optimize_detector_mode \\
@@ -66,110 +64,205 @@ def _resample_to_timeframe(candles_1m: np.ndarray, timeframe_minutes: int) -> np
     return result
 
 
-def score_detector(detector, candles: np.ndarray) -> float:
-    """Score a detector's regime classifications against actual price movements.
+def _walk_detector(detector, candles: np.ndarray):
+    """Walk a detector bar-by-bar and return per-bar regime labels.
 
-    Walks through candles bar by bar, building regime periods.
-    Then scores each period based on whether price moved in the
-    direction the regime predicted.
-
-    Returns a score from -1.0 (perfectly wrong) to +1.0 (perfectly right).
+    Returns array of regime strings aligned with candles (warmup bars = None).
     """
-    if len(candles) < 100:
-        return -1.0
-
-    # Walk through candles, feeding them to the detector one at a time
-    # (simulating how the strategy would call it bar by bar)
     detector.reset()
-    periods = []
-    current_regime = None
-    period_start_idx = 0
-
-    warmup = max(70, len(candles) // 5)  # Skip initial warmup
+    warmup = max(70, len(candles) // 5)
+    labels = [None] * len(candles)
 
     for i in range(warmup, len(candles)):
         window = candles[:i + 1]
         try:
-            regime = detector.detect(window)
+            labels[i] = detector.detect(window)
         except (ValueError, IndexError):
+            labels[i] = labels[i - 1] if i > 0 else None
+
+    return labels
+
+
+def _capture_ratio(candles: np.ndarray, labels: list) -> float:
+    """What fraction of up/down moves did the detector capture?
+
+    For every bar where price went up: was the detector in trending-up?
+    For every bar where price went down: was the detector in trending-down?
+    Returns average of upside and downside capture in [0, 1].
+    """
+    up_moves = 0.0
+    captured_up = 0.0
+    down_moves = 0.0
+    captured_down = 0.0
+
+    for i in range(1, len(candles)):
+        if labels[i] is None:
             continue
+        ret = candles[i, 2] - candles[i - 1, 2]
+        if ret > 0:
+            up_moves += ret
+            if labels[i] == 'trending-up':
+                captured_up += ret
+        elif ret < 0:
+            down_moves += abs(ret)
+            if labels[i] == 'trending-down':
+                captured_down += abs(ret)
 
-        if current_regime is None:
-            current_regime = regime
-            period_start_idx = i
+    up_cap = captured_up / up_moves if up_moves > 0 else 0
+    down_cap = captured_down / down_moves if down_moves > 0 else 0
+    return (up_cap + down_cap) / 2
 
-        if regime != current_regime:
-            periods.append({
-                'regime': current_regime,
-                'start_idx': period_start_idx,
-                'end_idx': i,
-            })
-            current_regime = regime
-            period_start_idx = i
 
-    # Close last period
-    if current_regime is not None:
-        periods.append({
-            'regime': current_regime,
-            'start_idx': period_start_idx,
-            'end_idx': len(candles) - 1,
-        })
+def _stability_score(labels: list, min_duration: int = 3) -> float:
+    """Penalize whipsawing — short-lived regime flips.
 
-    if not periods:
-        return -1.0
+    Returns score in [0, 1]. Higher = more stable.
+    """
+    durations = []
+    current = None
+    duration = 0
 
-    # Score each period
-    total_score = 0.0
-    total_weight = 0.0
-
-    for p in periods:
-        start_price = candles[p['start_idx'], 2]  # close
-        end_price = candles[p['end_idx'], 2]
-
-        if start_price <= 0:
+    for lbl in labels:
+        if lbl is None:
             continue
+        if lbl == current:
+            duration += 1
+        else:
+            if current is not None:
+                durations.append(duration)
+            current = lbl
+            duration = 1
+    if current is not None:
+        durations.append(duration)
 
-        pct_change = (end_price - start_price) / start_price * 100
-        duration = p['end_idx'] - p['start_idx']
+    if not durations:
+        return 0.0
 
-        if duration < 1:
+    mean_dur = np.mean(durations)
+    short_frac = sum(1 for d in durations if d < min_duration) / len(durations)
+
+    # Normalize: 1 bar mean = 0, 20+ bar mean = 1
+    dur_score = min(mean_dur / 20.0, 1.0)
+    return dur_score * (1.0 - short_frac)
+
+
+def _regime_conditional_sharpe(candles: np.ndarray, labels: list) -> float:
+    """Do detected regimes separate return distributions?
+
+    trending-up should have positive Sharpe, trending-down negative mean,
+    ranging should have low variance relative to trending.
+    Returns score (higher = better separation).
+    """
+    returns = np.diff(candles[:, 2]) / (candles[:-1, 2] + 1e-10)
+    aligned_labels = labels[1:]
+
+    regime_returns = {}
+    for i in range(len(returns)):
+        lbl = aligned_labels[i]
+        if lbl is None:
             continue
+        regime_returns.setdefault(lbl, []).append(returns[i])
 
-        # Score based on regime correctness
-        #
-        # trending-up:   positive pct_change = good
-        # trending-down: negative pct_change = good
-        # ranging:       small |pct_change| = good (< 3% is "ranging")
-        regime = p['regime']
+    score = 0.0
+    total_bars = sum(len(v) for v in regime_returns.values())
+    if total_bars == 0:
+        return 0.0
+
+    trending_stds = []
+
+    for regime, rets in regime_returns.items():
+        if len(rets) < 5:
+            continue
+        r = np.array(rets)
+        mean_r = np.mean(r)
+        std_r = np.std(r) + 1e-10
+        sharpe = mean_r / std_r
+        count = len(r)
 
         if regime == 'trending-up':
-            # Reward proportional to how much price went up
-            # Cap at 1.0 for large moves
-            period_score = min(pct_change / 5.0, 1.0) if pct_change > 0 else max(pct_change / 5.0, -1.0)
-
+            score += max(sharpe, 0) * count
+            trending_stds.append(std_r)
         elif regime == 'trending-down':
-            # Reward proportional to how much price went down (inverted)
-            period_score = min(-pct_change / 5.0, 1.0) if pct_change < 0 else max(-pct_change / 5.0, -1.0)
+            score += max(-sharpe, 0) * count
+            trending_stds.append(std_r)
 
-        elif regime in ('ranging-up', 'ranging-down'):
-            # Reward small price changes, penalize big ones
-            abs_change = abs(pct_change)
-            if abs_change < 2.0:
-                period_score = 1.0 - (abs_change / 2.0)  # 0% = 1.0, 2% = 0.0
-            else:
-                period_score = -min(abs_change / 10.0, 1.0)  # Penalize big moves in ranging
-        else:
-            period_score = 0.0
+    # Ranging: reward low variance relative to trending
+    avg_trending_std = np.mean(trending_stds) if trending_stds else 1.0
+    for regime in ('ranging-up', 'ranging-down'):
+        if regime in regime_returns and len(regime_returns[regime]) >= 5:
+            r = np.array(regime_returns[regime])
+            ratio = np.std(r) / avg_trending_std
+            score += max(1.0 - ratio, 0) * len(r)
 
-        # Weight by duration (longer periods matter more)
-        weight = np.sqrt(duration)  # sqrt to avoid huge periods dominating
-        total_score += period_score * weight
-        total_weight += weight
+    return score / total_bars
 
-    if total_weight == 0:
+
+def _economic_value(candles: np.ndarray, labels: list) -> float:
+    """Sharpe of a simple regime-following strategy.
+
+    Long in trending-up, short in trending-down, flat in ranging.
+    Penalized by max drawdown.
+    """
+    returns = np.diff(candles[:, 2]) / (candles[:-1, 2] + 1e-10)
+    aligned_labels = labels[1:]
+
+    strat_returns = np.zeros_like(returns)
+    for i in range(len(returns)):
+        lbl = aligned_labels[i]
+        if lbl == 'trending-up':
+            strat_returns[i] = returns[i]
+        elif lbl == 'trending-down':
+            strat_returns[i] = -returns[i]
+
+    std = np.std(strat_returns)
+    if std < 1e-10:
+        return 0.0
+
+    sharpe = np.mean(strat_returns) / std
+
+    # Drawdown penalty
+    cumulative = np.cumsum(strat_returns)
+    running_max = np.maximum.accumulate(cumulative)
+    max_dd = np.max(running_max - cumulative)
+    dd_penalty = 1.0 / (1.0 + max_dd * 10)
+
+    return sharpe * dd_penalty
+
+
+def score_detector(detector, candles: np.ndarray) -> float:
+    """Composite score combining 4 metrics.
+
+    1. Capture ratio (25%):  fraction of up/down moves correctly classified
+    2. Stability (20%):      penalizes whipsawing
+    3. Conditional Sharpe (25%): regime labels separate return distributions
+    4. Economic value (30%): Sharpe of regime-following strategy
+
+    Returns composite score. Higher = better detector.
+    """
+    if len(candles) < 100:
         return -1.0
 
-    return total_score / total_weight
+    labels = _walk_detector(detector, candles)
+
+    # Check we have enough labeled bars
+    labeled_count = sum(1 for l in labels if l is not None)
+    if labeled_count < 50:
+        return -1.0
+
+    capture = _capture_ratio(candles, labels)
+    stability = _stability_score(labels)
+    cond_sharpe = _regime_conditional_sharpe(candles, labels)
+    econ_value = _economic_value(candles, labels)
+
+    # Composite weighted score
+    score = (
+        0.25 * capture
+        + 0.20 * stability
+        + 0.25 * cond_sharpe
+        + 0.30 * econ_value
+    )
+
+    return score
 
 
 def _get_detector_param_ranges(detector_type: str) -> dict:
