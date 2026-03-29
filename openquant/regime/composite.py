@@ -210,18 +210,27 @@ class CompositeStrategy(Strategy):
         on_switch = transitions.get('on_switch', 'close_all')
 
         if on_switch == 'hold':
-            return  # keep positions
-        elif on_switch == 'close_all':
+            return
+
+        # Only close when the BEHAVIOR changes, not just the regime label.
+        # ranging-up → ranging-down both use the same behavior (e.g. BB MR)
+        # so closing the position is wasteful.
+        regimes_cfg = config.get('regimes', {})
+        old_behavior = regimes_cfg.get(old_regime)
+        new_behavior = regimes_cfg.get(new_regime)
+        if old_behavior == new_behavior:
+            return  # same behavior — keep position
+
+        if on_switch == 'close_all':
             if self.is_long or self.is_short:
                 self.liquidate()
         elif on_switch == 'close_opposite':
-            # Close positions that conflict with the new regime direction
             if new_regime == 'trending-up' and self.is_short:
                 self.liquidate()
             elif new_regime == 'trending-down' and self.is_long:
                 self.liquidate()
             elif 'ranging' in new_regime:
-                pass  # ranging allows both directions
+                pass
 
     def on_close_position(self, order, closed_trade=None):
         config = self._ensure_config()
