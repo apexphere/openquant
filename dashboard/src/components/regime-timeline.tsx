@@ -317,7 +317,7 @@ export function RegimeTimeline({
     }
 
     return (
-      <div className="relative">
+      <div className="relative" style={{ marginLeft: 65, marginRight: 60 }}>
         <div className="flex h-7 rounded overflow-hidden mb-2">
           {segments.map((seg, si) => {
             if (seg.type === "gap") {
