@@ -201,6 +201,8 @@ export async function fetchTrialRegimes(
     regime: string;
     start_date: string;
     end_date: string;
+    start_ts: number;
+    end_ts: number;
     days: number;
     start_price: number;
     end_price: number;
