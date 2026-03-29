@@ -4,6 +4,8 @@ import type {
   ChartData,
   OptimizationSession,
   CandleExisting,
+  DetectorOptimizationSession,
+  DetectorOptimizationDetail,
 } from "./types";
 
 const API_BASE = "http://localhost:9000";
@@ -122,6 +124,68 @@ export async function runBacktest(params: {
       benchmark: true,
       hyperparameters: params.hyperparameters ?? null,
     }),
+  });
+}
+
+export async function fetchDetectorOptimizationSessions(): Promise<
+  DetectorOptimizationSession[]
+> {
+  const data = await apiFetch<{ sessions: DetectorOptimizationSession[] }>(
+    "/detector-optimization/sessions",
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return data.sessions ?? [];
+}
+
+export async function fetchDetectorOptimizationSession(
+  studyName: string
+): Promise<DetectorOptimizationDetail> {
+  const data = await apiFetch<{ session: DetectorOptimizationDetail }>(
+    `/detector-optimization/sessions/${encodeURIComponent(studyName)}`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return data.session;
+}
+
+export async function fetchDetectorTypes(): Promise<
+  Record<string, Record<string, { type: string; min: number; max: number }>>
+> {
+  const data = await apiFetch<{
+    detector_types: Record<string, Record<string, { type: string; min: number; max: number }>>;
+  }>("/detector-optimization/detector-types", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.detector_types;
+}
+
+export async function startDetectorOptimization(params: {
+  detector_type: string;
+  exchange?: string;
+  symbol?: string;
+  start_date: string;
+  finish_date: string;
+  trials?: number;
+}): Promise<{ message: string; session_id: string }> {
+  return apiFetch("/detector-optimization", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function fetchDetectorPreview(params: {
+  detector_type: string;
+  params: Record<string, number>;
+  symbol?: string;
+  start_date: string;
+  finish_date: string;
+}): Promise<{
+  candles: Array<{ time: number; open: number; close: number; high: number; low: number; volume: number }>;
+  regime_periods: Array<{ regime: string; start: number; end: number }>;
+}> {
+  return apiFetch("/detector-optimization/preview", {
+    method: "POST",
+    body: JSON.stringify(params),
   });
 }
 

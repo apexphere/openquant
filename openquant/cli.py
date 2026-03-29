@@ -577,7 +577,7 @@ def optimize_detector(detector_type, start, finish, exchange, symbol, trials) ->
         click.echo('=' * 60)
         click.echo(f'DETECTOR OPTIMIZATION COMPLETE')
         click.echo(f'Best score: {result["best_score"]:.4f}')
-        click.echo(f'Training bars: {result["training_bars"]} | Total bars: {result["total_bars"]}')
+        click.echo(f'Total bars: {result["total_bars"]}')
         click.echo()
         click.echo('Best params:')
         for k, v in sorted(result['best_params'].items()):
@@ -588,11 +588,11 @@ def optimize_detector(detector_type, start, finish, exchange, symbol, trials) ->
 
         click.echo()
         click.echo(f'Top 5 trials:')
-        click.echo(f'{"Trial":>7} {"Train":>8} {"Full":>8} {"Score":>8}')
-        click.echo('-' * 35)
+        click.echo(f'{"Trial":>7} {"Score":>8}')
+        click.echo('-' * 17)
         for t in result['best_trials'][:5]:
             click.echo(
-                f'{t["trial"]:>7} {t["train_score"]:>8.4f} {t["full_score"]:>8.4f} {t["composite"]:>8.4f}'
+                f'{t["trial"]:>7} {t["score"]:>8.4f}'
             )
 
         click.echo()

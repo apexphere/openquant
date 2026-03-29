@@ -222,11 +222,6 @@ def run_detector_optimization(
     if not param_ranges:
         raise ValueError(f'No param ranges defined for detector type: {detector_type}')
 
-    # Split: 70% training, 30% testing
-    split_idx = int(len(daily_candles) * 0.7)
-    training_candles = daily_candles[:split_idx]
-    testing_candles = daily_candles  # full period for testing (includes training)
-
     best_trials = []
 
     def objective(trial):
@@ -249,34 +244,24 @@ def run_detector_optimization(
             if params['macd_fast'] >= params['macd_slow']:
                 return -1.0
 
-        # Score on training period
+        # Score on full period
         detector = DetectorClass(**params)
-        train_score = score_detector(detector, training_candles)
-
-        # Score on full period (includes unseen data)
-        detector_full = DetectorClass(**params)
-        full_score = score_detector(detector_full, testing_candles)
-
-        # Composite: 60% full period + 40% training
-        # (full period includes training, so it tests consistency)
-        composite = 0.6 * full_score + 0.4 * train_score
+        score = score_detector(detector, daily_candles)
 
         # Store trial info
         trial_info = {
             'trial': trial.number,
             'params': params,
-            'train_score': round(train_score, 4),
-            'full_score': round(full_score, 4),
-            'composite': round(composite, 4),
+            'score': round(score, 4),
         }
 
-        # Keep top 20 sorted by composite
+        # Keep top 20 sorted by score
         best_trials.append(trial_info)
-        best_trials.sort(key=lambda t: t['composite'], reverse=True)
+        best_trials.sort(key=lambda t: t['score'], reverse=True)
         if len(best_trials) > 20:
             best_trials.pop()
 
-        return composite
+        return score
 
     # Run optimization
     study = optuna.create_study(
@@ -293,6 +278,5 @@ def run_detector_optimization(
         'best_score': study.best_value,
         'best_trials': best_trials,
         'n_trials': n_trials,
-        'training_bars': len(training_candles),
         'total_bars': len(daily_candles),
     }

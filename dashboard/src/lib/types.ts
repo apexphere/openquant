@@ -136,3 +136,22 @@ export interface CandleExisting {
   start_date: string;
   end_date: string;
 }
+
+export interface DetectorOptimizationSession {
+  study_name: string;
+  detector_type: string;
+  n_trials: number;
+  best_score: number | null;
+  best_params: Record<string, number>;
+  datetime_start: string | null;
+}
+
+export interface DetectorOptimizationDetail extends DetectorOptimizationSession {
+  trials: DetectorTrial[];
+}
+
+export interface DetectorTrial {
+  trial: number;
+  params: Record<string, number>;
+  score: number | null;
+}
