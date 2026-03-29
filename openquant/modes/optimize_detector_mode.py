@@ -264,7 +264,7 @@ def _build_period(candles: np.ndarray, regime: str, si: int, ei: int) -> dict:
         'regime': regime,
         'start_ts': int(candles[si, 0]),
         'end_ts': int(candles[ei, 0]),
-        'days': ei - si,
+        'days': round((candles[ei, 0] - candles[si, 0]) / (24 * 60 * 60 * 1000)),
         'start_price': round(start_price, 2),
         'end_price': round(end_price, 2),
         'high': round(float(np.max(segment[:, 3])), 2),
