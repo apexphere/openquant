@@ -377,7 +377,7 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
 def run_detector_optimization(
     detector_type: str,
     candles: np.ndarray,
-    timeframe_minutes: int = 1440,  # daily
+    timeframe_minutes: int = 240,  # 4h — more bars = better param differentiation
     n_trials: int = 200,
     session_id: str = None,
 ) -> dict:
@@ -388,8 +388,8 @@ def run_detector_optimization(
     # Resample to detector timeframe
     daily_candles = _resample_to_timeframe(candles, timeframe_minutes)
 
-    if len(daily_candles) < 100:
-        raise ValueError(f'Need at least 100 daily candles, got {len(daily_candles)}')
+    if len(daily_candles) < 200:
+        raise ValueError(f'Need at least 200 candles, got {len(daily_candles)}')
 
     DetectorClass = _resolve_detector_class(detector_type)
     param_ranges = _get_detector_param_ranges(detector_type)
