@@ -363,8 +363,8 @@ def get_trial_regimes(
 ):
     """Get regime details for a specific trial in a study.
 
-    Looks up trial params from Optuna, runs the detector, and returns
-    regime periods with price stats (start/end price, high, low, pct change).
+    Reads pre-computed regime periods from Optuna user_attrs (stored during
+    optimization). Falls back to recomputation for older trials.
     """
     if not authenticator.is_valid_token(authorization):
         return authenticator.unauthorized_response()
@@ -373,7 +373,7 @@ def get_trial_regimes(
         return JSONResponse({'error': 'No optimization data found'}, status_code=404)
 
     import optuna
-    import numpy as np
+    import json as json_lib
 
     storage = f'sqlite:///{OPTUNA_DB}'
 
@@ -395,93 +395,63 @@ def get_trial_regimes(
     detector_type = _parse_detector_type(study_name)
     params = trial.params
 
-    from openquant.modes.optimize_detector_mode import (
-        _resolve_detector_class,
-        _resample_to_timeframe,
-    )
-    from openquant.models.Candle import Candle
+    # Try reading stored regime periods first
+    stored = trial.user_attrs.get('regime_periods') if trial.user_attrs else None
 
-    # Default date range — use BTC full range
-    exchange = 'Bybit USDT Perpetual'
-    symbol = 'BTC-USDT'
-    start_ts = jh.date_to_timestamp('2025-06-01')
-    finish_ts = jh.date_to_timestamp('2026-03-25')
-
-    candles_raw = (
-        Candle.select()
-        .where(
-            Candle.exchange == exchange,
-            Candle.symbol == symbol,
-            Candle.timestamp >= start_ts,
-            Candle.timestamp <= finish_ts,
+    if stored:
+        # Stored as JSON string during optimization
+        regime_periods = json_lib.loads(stored)
+        # Convert timestamps to dates
+        for rp in regime_periods:
+            if 'start_ts' in rp and 'start_date' not in rp:
+                rp['start_date'] = jh.timestamp_to_date(rp['start_ts'])
+                rp['end_date'] = jh.timestamp_to_date(rp['end_ts'])
+    else:
+        # Fallback: recompute for older trials without stored data
+        import numpy as np
+        from openquant.modes.optimize_detector_mode import (
+            _resolve_detector_class,
+            _resample_to_timeframe,
+            _walk_detector,
+            _labels_to_regime_periods,
         )
-        .order_by(Candle.timestamp)
-    )
+        from openquant.models.Candle import Candle
 
-    candles_1m = np.array([
-        [c.timestamp, c.open, c.close, c.high, c.low, c.volume]
-        for c in candles_raw
-    ])
+        exchange = 'Bybit USDT Perpetual'
+        symbol = 'BTC-USDT'
+        start_ts = jh.date_to_timestamp('2025-06-01')
+        finish_ts = jh.date_to_timestamp('2026-03-25')
 
-    if len(candles_1m) == 0:
-        return JSONResponse({'error': 'No candle data found'}, status_code=404)
+        candles_raw = (
+            Candle.select()
+            .where(
+                Candle.exchange == exchange,
+                Candle.symbol == symbol,
+                Candle.timestamp >= start_ts,
+                Candle.timestamp <= finish_ts,
+            )
+            .order_by(Candle.timestamp)
+        )
 
-    daily_candles = _resample_to_timeframe(candles_1m, 1440)
+        candles_1m = np.array([
+            [c.timestamp, c.open, c.close, c.high, c.low, c.volume]
+            for c in candles_raw
+        ])
 
-    if len(daily_candles) < 100:
-        return JSONResponse({'error': f'Need 100+ daily candles, got {len(daily_candles)}'}, status_code=400)
+        if len(candles_1m) == 0:
+            return JSONResponse({'error': 'No candle data found'}, status_code=404)
 
-    # Run detector
-    DetectorClass = _resolve_detector_class(detector_type)
-    detector = DetectorClass(**params)
-    detector.reset()
+        daily_candles = _resample_to_timeframe(candles_1m, 1440)
+        DetectorClass = _resolve_detector_class(detector_type)
+        detector = DetectorClass(**params)
+        labels = _walk_detector(detector, daily_candles)
+        regime_periods = _labels_to_regime_periods(daily_candles, labels)
 
-    warmup = max(70, len(daily_candles) // 5)
-    regime_periods = []
-    current_regime = None
-    period_start_idx = 0
-
-    for i in range(warmup, len(daily_candles)):
-        window = daily_candles[:i + 1]
-        try:
-            regime = detector.detect(window)
-        except (ValueError, IndexError):
-            continue
-
-        if current_regime is None:
-            current_regime = regime
-            period_start_idx = i
-
-        if regime != current_regime:
-            regime_periods.append((current_regime, period_start_idx, i))
-            current_regime = regime
-            period_start_idx = i
-
-    if current_regime is not None:
-        regime_periods.append((current_regime, period_start_idx, len(daily_candles) - 1))
-
-    # Enrich with price stats
-    results = []
-    for regime, si, ei in regime_periods:
-        segment = daily_candles[si:ei + 1]
-        start_price = round(float(segment[0, 2]), 2)
-        end_price = round(float(segment[-1, 2]), 2)
-        high = round(float(np.max(segment[:, 3])), 2)
-        low = round(float(np.min(segment[:, 4])), 2)
-        pct_change = round((end_price - start_price) / start_price * 100, 2) if start_price > 0 else 0
-        days = ei - si
-
-        results.append({
-            'regime': regime,
-            'start_date': jh.timestamp_to_date(int(daily_candles[si, 0])),
-            'end_date': jh.timestamp_to_date(int(daily_candles[ei, 0])),
-            'days': days,
-            'start_price': start_price,
-            'end_price': end_price,
-            'high': high,
-            'low': low,
-            'pct_change': pct_change,
-        })
+    # Ensure dates are present
+    for rp in regime_periods:
+        if 'start_date' not in rp and 'start_ts' in rp:
+            rp['start_date'] = jh.timestamp_to_date(rp['start_ts'])
+            rp['end_date'] = jh.timestamp_to_date(rp['end_ts'])
 
     return JSONResponse({
         'trial': trial_number,
@@ -491,7 +461,7 @@ def get_trial_regimes(
             for k, v in params.items()
         },
         'detector_type': detector_type,
-        'regime_periods': results,
+        'regime_periods': regime_periods,
     })
 
 

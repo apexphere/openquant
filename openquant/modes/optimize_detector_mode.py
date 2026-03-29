@@ -229,7 +229,47 @@ def _economic_value(candles: np.ndarray, labels: list) -> float:
     return sharpe * dd_penalty
 
 
-def score_detector(detector, candles: np.ndarray) -> float:
+def _labels_to_regime_periods(candles: np.ndarray, labels: list) -> list:
+    """Convert per-bar labels into regime period dicts with price stats."""
+    periods = []
+    current = None
+    start_idx = 0
+
+    for i, lbl in enumerate(labels):
+        if lbl is None:
+            continue
+        if current is None:
+            current = lbl
+            start_idx = i
+        elif lbl != current:
+            periods.append(_build_period(candles, current, start_idx, i))
+            current = lbl
+            start_idx = i
+
+    if current is not None:
+        periods.append(_build_period(candles, current, start_idx, len(candles) - 1))
+
+    return periods
+
+
+def _build_period(candles: np.ndarray, regime: str, si: int, ei: int) -> dict:
+    segment = candles[si:ei + 1]
+    start_price = float(segment[0, 2])
+    end_price = float(segment[-1, 2])
+    return {
+        'regime': regime,
+        'start_ts': int(candles[si, 0]),
+        'end_ts': int(candles[ei, 0]),
+        'days': ei - si,
+        'start_price': round(start_price, 2),
+        'end_price': round(end_price, 2),
+        'high': round(float(np.max(segment[:, 3])), 2),
+        'low': round(float(np.min(segment[:, 4])), 2),
+        'pct_change': round((end_price - start_price) / start_price * 100, 2) if start_price > 0 else 0,
+    }
+
+
+def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     """Composite score combining 4 metrics.
 
     1. Capture ratio (25%):  fraction of up/down moves correctly classified
@@ -237,24 +277,23 @@ def score_detector(detector, candles: np.ndarray) -> float:
     3. Conditional Sharpe (25%): regime labels separate return distributions
     4. Economic value (30%): Sharpe of regime-following strategy
 
-    Returns composite score. Higher = better detector.
+    Returns (score, regime_periods). Regime periods include price stats.
     """
     if len(candles) < 100:
-        return -1.0
+        return -1.0, []
 
     labels = _walk_detector(detector, candles)
 
     # Check we have enough labeled bars
     labeled_count = sum(1 for l in labels if l is not None)
     if labeled_count < 50:
-        return -1.0
+        return -1.0, []
 
     capture = _capture_ratio(candles, labels)
     stability = _stability_score(labels)
     cond_sharpe = _regime_conditional_sharpe(candles, labels)
     econ_value = _economic_value(candles, labels)
 
-    # Composite weighted score
     score = (
         0.25 * capture
         + 0.20 * stability
@@ -262,7 +301,9 @@ def score_detector(detector, candles: np.ndarray) -> float:
         + 0.30 * econ_value
     )
 
-    return score
+    regime_periods = _labels_to_regime_periods(candles, labels)
+
+    return score, regime_periods
 
 
 def _get_detector_param_ranges(detector_type: str) -> dict:
@@ -339,7 +380,11 @@ def run_detector_optimization(
 
         # Score on full period
         detector = DetectorClass(**params)
-        score = score_detector(detector, daily_candles)
+        score, regime_periods = score_detector(detector, daily_candles)
+
+        # Store regime periods in Optuna trial attrs (persisted in SQLite)
+        import json
+        trial.set_user_attr('regime_periods', json.dumps(regime_periods))
 
         # Store trial info
         trial_info = {

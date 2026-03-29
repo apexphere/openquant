@@ -11,7 +11,7 @@ import type {
   DetectorTrial,
   RegimePeriod,
 } from "@/lib/types";
-import { startDetectorOptimization, fetchDetectorPreview } from "@/lib/api";
+import { startDetectorOptimization, fetchDetectorPreview, fetchTrialRegimes } from "@/lib/api";
 
 function fmtScore(v: number | null | undefined): string {
   if (v == null) return "\u2014";
@@ -41,35 +41,67 @@ interface PreviewData {
   regimePeriods: RegimePeriod[];
 }
 
-function DetailPanel({ detail }: { detail: DetectorOptimizationDetail | null }) {
+interface RegimeDetail {
+  regime: string;
+  start_date: string;
+  end_date: string;
+  days: number;
+  start_price: number;
+  end_price: number;
+  high: number;
+  low: number;
+  pct_change: number;
+}
+
+const REGIME_LABEL_COLORS: Record<string, string> = {
+  "trending-up": "var(--green)",
+  "trending-down": "var(--red)",
+  "ranging-up": "var(--text-secondary)",
+  "ranging-down": "var(--text-secondary)",
+};
+
+function DetailPanel({
+  detail,
+  studyName,
+}: {
+  detail: DetectorOptimizationDetail | null;
+  studyName: string | null;
+}) {
   const [selectedTrialIdx, setSelectedTrialIdx] = useState<number>(0);
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [regimeDetails, setRegimeDetails] = useState<RegimeDetail[]>([]);
 
   const trials = detail?.trials ?? [];
   const selectedTrial = trials[selectedTrialIdx] ?? null;
 
   const loadPreview = useCallback(
-    async (trial: DetectorTrial, detectorType: string) => {
+    async (trial: DetectorTrial, detectorType: string, study: string) => {
       setPreviewLoading(true);
       try {
-        const data = await fetchDetectorPreview({
-          detector_type: detectorType,
-          params: trial.params,
-          start_date: "2025-06-01",
-          finish_date: "2026-03-25",
-        });
+        // Fetch chart data and regime details in parallel
+        const [previewData, regimeData] = await Promise.all([
+          fetchDetectorPreview({
+            detector_type: detectorType,
+            params: trial.params,
+            start_date: "2025-06-01",
+            finish_date: "2026-03-25",
+          }),
+          fetchTrialRegimes(study, trial.trial),
+        ]);
         setPreview({
-          candles: data.candles,
-          regimePeriods: data.regime_periods.map((rp) => ({
+          candles: previewData.candles,
+          regimePeriods: previewData.regime_periods.map((rp) => ({
             start: rp.start,
             end: rp.end,
             regime: rp.regime,
             color: "",
           })),
         });
+        setRegimeDetails(regimeData.regime_periods);
       } catch {
         setPreview(null);
+        setRegimeDetails([]);
       } finally {
         setPreviewLoading(false);
       }
@@ -80,10 +112,11 @@ function DetailPanel({ detail }: { detail: DetectorOptimizationDetail | null }) 
   // Auto-load preview for the top trial when detail loads
   useEffect(() => {
     setSelectedTrialIdx(0);
-    if (detail && trials.length > 0) {
-      loadPreview(trials[0], detail.detector_type);
+    if (detail && trials.length > 0 && studyName) {
+      loadPreview(trials[0], detail.detector_type, studyName);
     } else {
       setPreview(null);
+      setRegimeDetails([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.study_name]);
@@ -100,8 +133,8 @@ function DetailPanel({ detail }: { detail: DetectorOptimizationDetail | null }) 
 
   function handleTrialClick(idx: number) {
     setSelectedTrialIdx(idx);
-    if (trials[idx]) {
-      loadPreview(trials[idx], detail!.detector_type);
+    if (trials[idx] && studyName) {
+      loadPreview(trials[idx], detail!.detector_type, studyName);
     }
   }
 
@@ -170,6 +203,49 @@ function DetailPanel({ detail }: { detail: DetectorOptimizationDetail | null }) 
           regimePeriods={preview?.regimePeriods ?? null}
         />
       </div>
+
+      {/* Regime details table */}
+      {regimeDetails.length > 0 && (
+        <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
+          <div className="text-[13px] font-semibold text-[var(--text-heading)] mb-3">
+            Regime Periods
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr>
+                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Regime</th>
+                <th className="text-left py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Period</th>
+                <th className="text-right py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Days</th>
+                <th className="text-right py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Start</th>
+                <th className="text-right py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">End</th>
+                <th className="text-right py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">High</th>
+                <th className="text-right py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Low</th>
+                <th className="text-right py-1.5 px-2 text-[var(--text-secondary)] font-medium border-b border-[var(--border)]">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {regimeDetails.map((rd, i) => (
+                <tr key={i} className="border-b border-[var(--bg-primary)]">
+                  <td className="py-1.5 px-2 font-medium" style={{ color: REGIME_LABEL_COLORS[rd.regime] ?? "var(--text-secondary)" }}>
+                    {rd.regime}
+                  </td>
+                  <td className="py-1.5 px-2 text-[var(--text-secondary)]">
+                    {rd.start_date} &rarr; {rd.end_date}
+                  </td>
+                  <td className="py-1.5 px-2 text-right">{rd.days}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">${rd.start_price.toLocaleString()}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">${rd.end_price.toLocaleString()}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">${rd.high.toLocaleString()}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">${rd.low.toLocaleString()}</td>
+                  <td className={`py-1.5 px-2 text-right font-mono ${rd.pct_change >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                    {rd.pct_change >= 0 ? "+" : ""}{rd.pct_change.toFixed(2)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Best params */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
@@ -477,7 +553,7 @@ export default function DetectorOptimizationPage() {
           </div>
 
           {/* Detail panel */}
-          <DetailPanel detail={selectedDetail ?? null} />
+          <DetailPanel detail={selectedDetail ?? null} studyName={selectedName} />
         </div>
       )}
     </div>
