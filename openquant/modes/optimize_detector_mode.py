@@ -33,6 +33,7 @@ _DETECTOR_REGISTRY = {
     'ema_adx': 'openquant.regime.ema_adx_detector.EmaAdxDetector',
     'breakout_v3': 'openquant.regime.breakout_detector.BreakoutDetector',
     'momentum_v4': 'openquant.regime.momentum_detector.MomentumDetector',
+    'supertrend_v5': 'openquant.regime.supertrend_detector.SuperTrendDetector',
     'volatility': 'openquant.regime.volatility_detector.VolatilityRegimeDetector',
     'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
 }
@@ -409,6 +410,18 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'slow_ema': {'type': int, 'min': 126, 'max': 330},
             'separation_pct': {'type': float, 'min': 0.05, 'max': 0.5},
             'confirm_bars': {'type': int, 'min': 0, 'max': 18},
+        }
+    elif detector_type == 'supertrend_v5':
+        # Ranges for 4h candles
+        return {
+            'st_period': {'type': int, 'min': 5, 'max': 80},
+            'st_factor': {'type': float, 'min': 1.5, 'max': 5.0},
+            'adx_period': {'type': int, 'min': 7, 'max': 60},
+            'adx_threshold': {'type': float, 'min': 12.0, 'max': 35.0},
+            'chop_period': {'type': int, 'min': 7, 'max': 60},
+            'chop_ranging': {'type': float, 'min': 45.0, 'max': 70.0},
+            'chop_trending': {'type': float, 'min': 30.0, 'max': 55.0},
+            'confirm_bars': {'type': int, 'min': 0, 'max': 12},
         }
     else:
         return {}

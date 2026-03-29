@@ -499,7 +499,7 @@ def get_detector_types(
     from openquant.modes.optimize_detector_mode import _get_detector_param_ranges
 
     types = {}
-    for name in ['breakout_v3', 'momentum_v4', 'ema_adx']:
+    for name in ['breakout_v3', 'momentum_v4', 'supertrend_v5', 'ema_adx']:
         ranges = _get_detector_param_ranges(name)
         types[name] = {
             k: {'type': v['type'].__name__, 'min': v['min'], 'max': v['max']}

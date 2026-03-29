@@ -30,6 +30,7 @@ _DETECTOR_REGISTRY = {
     'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
     'breakout_v3': 'openquant.regime.breakout_detector.BreakoutDetector',
     'momentum_v4': 'openquant.regime.momentum_detector.MomentumDetector',
+    'supertrend_v5': 'openquant.regime.supertrend_detector.SuperTrendDetector',
 }
 
 _BEHAVIOR_REGISTRY = {

@@ -385,6 +385,7 @@ function NewOptimizationForm({ onStarted }: { onStarted: () => void }) {
           >
             <option value="breakout_v3">breakout_v3</option>
             <option value="momentum_v4">momentum_v4</option>
+            <option value="supertrend_v5">supertrend_v5</option>
             <option value="ema_adx">ema_adx</option>
           </select>
         </div>
