@@ -29,9 +29,15 @@ const REGIME_TEXT_COLORS: Record<string, string> = {
   "cold-start": "#58a6ff",
 };
 
+interface EquityCurvePoint {
+  time: number;
+  value: number;
+}
+
 interface RegimeTimelineProps {
   chartData: ChartData | null;
   regimePeriods: RegimePeriod[] | null;
+  equityCurve?: EquityCurvePoint[] | null;
   trades?: Array<{
     opened_at: number;
     closed_at: number;
@@ -98,9 +104,10 @@ function lttbDownsample(
 export function RegimeTimeline({
   chartData,
   regimePeriods,
+  equityCurve,
   trades,
 }: RegimeTimelineProps) {
-  if (!regimePeriods && !chartData) {
+  if (!regimePeriods && !chartData && !equityCurve) {
     return (
       <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
         <div className="text-[var(--text-secondary)] text-center py-8">
@@ -135,37 +142,98 @@ export function RegimeTimeline({
     </div>
   );
 
-  // Price chart (only if chartData exists)
+  // Build merged chart data: price + equity on same time axis
   let priceChart = null;
-  if (chartData?.candles_chart && chartData.candles_chart.length > 0) {
-    const raw = chartData.candles_chart.map((c) => ({
-      time: c[0],
-      close: c[4], // OHLCV: [time, open, high, low, close, volume]
-    }));
+  const hasCandles = chartData?.candles_chart && chartData.candles_chart.length > 0;
+  const hasEquity = equityCurve && equityCurve.length > 0;
 
-    const downsampled = lttbDownsample(raw, 2000);
+  if (hasCandles || hasEquity) {
+    // Build price data
+    let priceData: Array<{ time: number; close: number }> = [];
+    if (hasCandles) {
+      const raw = chartData!.candles_chart.map((c) => ({
+        time: c[0],
+        close: c[4],
+      }));
+      priceData = lttbDownsample(raw, 2000);
+    }
+
+    // Build equity data (already daily, no downsampling needed)
+    const equityMap = new Map<number, number>();
+    if (hasEquity) {
+      for (const pt of equityCurve!) {
+        // Snap to day boundary for matching
+        const dayTs = Math.floor(pt.time / 86400) * 86400 * 1000;
+        equityMap.set(pt.time * 1000, pt.value);
+      }
+    }
+
+    // Merge: use price data as base timeline, attach equity values
+    let mergedData: Array<{ time: number; close?: number; equity?: number }>;
+
+    if (priceData.length > 0) {
+      mergedData = priceData.map((p) => {
+        // Find closest equity point
+        let closestEquity: number | undefined;
+        let minDiff = Infinity;
+        for (const [eTime, eVal] of equityMap) {
+          const diff = Math.abs(p.time - eTime);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestEquity = eVal;
+          }
+        }
+        return { time: p.time, close: p.close, equity: closestEquity };
+      });
+    } else if (hasEquity) {
+      // No price data, just equity
+      mergedData = equityCurve!.map((pt) => ({
+        time: pt.time * 1000,
+        equity: pt.value,
+      }));
+    } else {
+      mergedData = [];
+    }
 
     priceChart = (
-      <ResponsiveContainer width="100%" height={250}>
+      <ResponsiveContainer width="100%" height={300}>
         <ComposedChart
-          data={downsampled}
-          margin={{ top: 5, right: 5, bottom: 5, left: 5 }}
+          data={mergedData}
+          margin={{ top: 5, right: 60, bottom: 5, left: 5 }}
         >
           <XAxis
             dataKey="time"
             tick={false}
             axisLine={{ stroke: "var(--border)" }}
           />
-          <YAxis
-            domain={["auto", "auto"]}
-            tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-            axisLine={false}
-            tickLine={false}
-            width={60}
-            tickFormatter={(v: number) =>
-              v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
-            }
-          />
+          {/* Left axis: Price */}
+          {hasCandles && (
+            <YAxis
+              yAxisId="price"
+              orientation="left"
+              domain={["auto", "auto"]}
+              tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={60}
+              tickFormatter={(v: number) =>
+                v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`
+              }
+            />
+          )}
+          {/* Right axis: Equity */}
+          {hasEquity && (
+            <YAxis
+              yAxisId="equity"
+              orientation="right"
+              domain={["auto", "auto"]}
+              tick={{ fill: "var(--green)", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={55}
+              tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
+            />
+          )}
           <Tooltip
             contentStyle={{
               background: "var(--bg-surface)",
@@ -176,7 +244,10 @@ export function RegimeTimeline({
             labelFormatter={(ts: number) =>
               new Date(ts).toLocaleDateString()
             }
-            formatter={(value: number) => [`$${value.toFixed(2)}`, "Price"]}
+            formatter={(value: number, name: string) => [
+              `$${value.toFixed(2)}`,
+              name === "close" ? "Price" : "Portfolio",
+            ]}
           />
 
           {/* Regime background shading */}
@@ -187,24 +258,44 @@ export function RegimeTimeline({
               x2={period.end}
               fill={REGIME_COLORS[period.regime] ?? "transparent"}
               fillOpacity={1}
+              yAxisId={hasCandles ? "price" : "equity"}
             />
           ))}
 
-          <Line
-            type="monotone"
-            dataKey="close"
-            stroke="var(--text-primary)"
-            strokeWidth={1.5}
-            dot={false}
-            isAnimationActive={false}
-          />
+          {/* Price line */}
+          {hasCandles && (
+            <Line
+              yAxisId="price"
+              type="monotone"
+              dataKey="close"
+              stroke="var(--text-secondary)"
+              strokeWidth={1}
+              dot={false}
+              isAnimationActive={false}
+              opacity={0.6}
+            />
+          )}
+
+          {/* Equity curve */}
+          {hasEquity && (
+            <Line
+              yAxisId={hasCandles ? "equity" : "equity"}
+              type="monotone"
+              dataKey="equity"
+              stroke="var(--green)"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
 
           {/* Trade entry markers */}
-          {trades?.map((trade, i) => (
+          {hasCandles && trades?.map((trade, i) => (
             <ReferenceDot
               key={`entry-${i}`}
               x={trade.opened_at}
               y={trade.entry_price}
+              yAxisId="price"
               r={4}
               fill={trade.type === "long" ? "var(--green)" : "var(--red)"}
               stroke="none"
@@ -212,11 +303,12 @@ export function RegimeTimeline({
           ))}
 
           {/* Trade exit markers */}
-          {trades?.map((trade, i) => (
+          {hasCandles && trades?.map((trade, i) => (
             <ReferenceDot
               key={`exit-${i}`}
               x={trade.closed_at}
               y={trade.exit_price}
+              yAxisId="price"
               r={3}
               fill="none"
               stroke="var(--text-secondary)"
@@ -240,9 +332,16 @@ export function RegimeTimeline({
         </div>
       )}
       <div className="flex gap-4 mt-2 text-[11px] text-[var(--text-secondary)]">
-        <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-sm bg-[var(--text-primary)]" /> Price
-        </span>
+        {hasCandles && (
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-sm bg-[var(--text-secondary)]" /> Price
+          </span>
+        )}
+        {hasEquity && (
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-sm bg-[var(--green)]" /> Portfolio
+          </span>
+        )}
         <span className="flex items-center gap-1">
           <span className="w-2 h-2 rounded-full bg-[var(--green)]" /> Long Entry
         </span>

@@ -169,6 +169,13 @@ export default function BacktestDetailPage() {
       <RegimeTimeline
         chartData={chartData ?? null}
         regimePeriods={session.regime_periods ?? null}
+        equityCurve={
+          session.equity_curve
+            ? (session.equity_curve as any[]).flatMap((series: any) =>
+                (series.data ?? []).map((pt: any) => ({ time: pt.time, value: pt.value }))
+              )
+            : null
+        }
         trades={trades ?? undefined}
       />
 
