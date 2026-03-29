@@ -117,7 +117,7 @@ export default function BacktestDetailPage() {
       : "text-[var(--red)]";
   const vsColor =
     metrics?.benchmark?.alpha != null &&
-    metrics.benchmark.strat_vs_buy_and_hold >= 0
+    metrics.benchmark.alpha >= 0
       ? "text-[var(--green)]"
       : "text-[var(--red)]";
 
@@ -156,8 +156,8 @@ export default function BacktestDetailPage() {
           <StatCard
             label="vs Buy & Hold"
             value={
-              metrics.benchmark?.strat_vs_buy_and_hold != null
-                ? formatPnl(metrics.benchmark.strat_vs_buy_and_hold)
+              metrics.benchmark?.alpha != null
+                ? formatPnl(metrics.benchmark.alpha)
                 : "--"
             }
             className={vsColor}
