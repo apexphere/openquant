@@ -23,22 +23,63 @@ transitions:
   cooldown_bars: 8
 
 params:
-  # Breakout params
+  # Fixed
   bo_timeframe: '4h'
-  bo_period: 20
-  bo_atr_period: 14
-  bo_atr_sl_mult: 2.0
 
-  # BB params (from Trial 1173)
-  bb_window: 32
-  bb_mult: 2.86
-  bb_sl_pct: 0.015
-  rsi_period: 15
-  rsi_oversold: 23
-  rsi_overbought: 81
+  # Breakout params — Trial 2262 (test PnL +3.04%, train PnL +2.86%)
+  bo_period:
+    default: 12
+    min: 10
+    max: 40
+  bo_atr_period:
+    default: 18
+    min: 7
+    max: 21
+  bo_atr_sl_mult:
+    default: 3.26
+    min: 1.0
+    max: 4.0
+
+  # BB params
+  bb_window:
+    default: 20
+    min: 15
+    max: 50
+  bb_mult:
+    default: 2.21
+    min: 1.5
+    max: 3.0
+  bb_sl_pct:
+    default: 0.028
+    min: 0.005
+    max: 0.03
+  rsi_period:
+    default: 10
+    min: 7
+    max: 21
+  rsi_oversold:
+    default: 26
+    min: 20
+    max: 45
+  rsi_overbought:
+    default: 85
+    min: 55
+    max: 85
 
   # Shared
-  risk_pct: 0.105
-  trail_pct: 0.065
-  sl_pct: 0.062
-  tp_pct: 0.179
+  risk_pct:
+    default: 0.148
+    min: 0.02
+    max: 0.15
+  trail_pct:
+    default: 0.036
+    min: 0.02
+    max: 0.10
+  sl_pct:
+    default: 0.077
+    min: 0.02
+    max: 0.10
+  tp_pct:
+    default: 0.244
+    min: 0.05
+    max: 0.30
