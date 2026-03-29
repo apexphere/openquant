@@ -300,13 +300,14 @@ def _directional_accuracy(candles: np.ndarray, labels: list) -> float:
 
 
 def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
-    """Composite score combining 5 metrics.
+    """Composite score. Economic value dominates.
 
-    1. Capture ratio (20%):  fraction of up/down moves correctly classified
-    2. Stability (15%):      penalizes whipsawing
-    3. Conditional Sharpe (15%): regime labels separate return distributions
-    4. Economic value (25%): Sharpe of regime-following strategy
-    5. Directional accuracy (25%): trending labels match actual price direction
+    1. Economic value (50%): Sharpe of regime-following strategy with DD penalty
+    2. Directional accuracy (25%): do labels match actual price direction
+    3. Capture ratio (25%): fraction of up/down moves correctly classified
+
+    No stability metric — it rewards laziness. A detector that never
+    changes regime scores high on stability but is useless for trading.
 
     Returns (score, regime_periods). Regime periods include price stats.
     """
@@ -320,21 +321,14 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
         return -1.0, []
 
     capture = _capture_ratio(candles, labels)
-    stability = _stability_score(labels)
-    cond_sharpe = _regime_conditional_sharpe(candles, labels)
     econ_value = _economic_value(candles, labels)
     direction = _directional_accuracy(candles, labels)
 
-    # Penalize worse-than-random directional accuracy
-    direction_penalty = 1.0 if direction >= 0.5 else direction / 0.5
-
     score = (
-        0.20 * capture
-        + 0.15 * stability
-        + 0.15 * cond_sharpe
-        + 0.25 * econ_value
+        0.50 * econ_value
         + 0.25 * direction
-    ) * direction_penalty
+        + 0.25 * capture
+    )
 
     regime_periods = _labels_to_regime_periods(candles, labels)
 
