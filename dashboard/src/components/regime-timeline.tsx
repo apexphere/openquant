@@ -12,12 +12,12 @@ import {
 import type { RegimePeriod, ChartData } from "@/lib/types";
 
 const REGIME_COLORS: Record<string, string> = {
-  "trending-up": "rgba(63,185,80,0.15)",
-  "trending-down": "rgba(248,81,73,0.15)",
-  "ranging-up": "rgba(139,148,158,0.1)",
-  "ranging-down": "rgba(139,148,158,0.1)",
-  ranging: "rgba(139,148,158,0.1)",
-  "cold-start": "rgba(56,139,253,0.1)",
+  "trending-up": "#0d3117",
+  "trending-down": "#310d0d",
+  "ranging-up": "#1e1e28",
+  "ranging-down": "#1e1e28",
+  ranging: "#1e1e28",
+  "cold-start": "#0d1e31",
 };
 
 const REGIME_TEXT_COLORS: Record<string, string> = {
@@ -257,15 +257,17 @@ export function RegimeTimeline({
             ]}
           />
 
-          {/* Regime background shading */}
+          {/* Regime background shading — full height colored bands */}
           {regimePeriods?.map((period, i) => (
             <ReferenceArea
               key={i}
               x1={period.start}
               x2={period.end}
               fill={REGIME_COLORS[period.regime] ?? "transparent"}
-              fillOpacity={1}
+              fillOpacity={0.8}
               yAxisId={hasCandles ? "price" : "equity"}
+              ifOverflow="extendDomain"
+              label={undefined}
             />
           ))}
 
