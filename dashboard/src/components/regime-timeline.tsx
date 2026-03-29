@@ -287,79 +287,87 @@ export function RegimeTimeline({
     );
   }
 
+  // Chart time range for aligning regime bar with chart X-axis
+  const chartTimeRange = (() => {
+    if (fullCandles.length > 0) {
+      return { start: fullCandles[0].time, end: fullCandles[fullCandles.length - 1].time };
+    }
+    if (regimePeriods && regimePeriods.length > 0) {
+      return { start: regimePeriods[0].start, end: regimePeriods[regimePeriods.length - 1].end };
+    }
+    return null;
+  })();
+
   // Regime bar with hover tooltip + click to copy
-  const regimeBar = regimePeriods && regimePeriods.length > 0 && (
-    <div className="relative">
-      <div className="flex h-7 rounded overflow-hidden mb-2">
-        {regimePeriods.map((period, i) => {
-          const totalDuration =
-            regimePeriods[regimePeriods.length - 1].end -
-            regimePeriods[0].start;
-          const width = ((period.end - period.start) / totalDuration) * 100;
-          const regime = period.regime;
+  const regimeBar = regimePeriods && regimePeriods.length > 0 && chartTimeRange && (() => {
+    const totalDuration = chartTimeRange.end - chartTimeRange.start;
+    if (totalDuration <= 0) return null;
+
+    // Build segments: gap before first regime, then each regime period
+    const segments: Array<{ type: "gap" | "regime"; width: number; idx: number }> = [];
+
+    const gapBefore = regimePeriods[0].start - chartTimeRange.start;
+    if (gapBefore > 0) {
+      segments.push({ type: "gap", width: (gapBefore / totalDuration) * 100, idx: -1 });
+    }
+
+    for (let i = 0; i < regimePeriods.length; i++) {
+      const w = ((regimePeriods[i].end - regimePeriods[i].start) / totalDuration) * 100;
+      segments.push({ type: "regime", width: w, idx: i });
+    }
+
+    return (
+      <div className="relative">
+        <div className="flex h-7 rounded overflow-hidden mb-2">
+          {segments.map((seg, si) => {
+            if (seg.type === "gap") {
+              return <div key={`gap-${si}`} style={{ width: `${seg.width}%` }} className="bg-[var(--bg-primary)]" />;
+            }
+            const period = regimePeriods[seg.idx];
+            const regime = period.regime;
+            return (
+              <div
+                key={seg.idx}
+                className="flex items-center justify-center text-[10px] font-semibold tracking-wide cursor-pointer transition-opacity"
+                style={{
+                  width: `${seg.width}%`,
+                  backgroundColor: REGIME_COLORS[regime] ?? "rgba(139,148,158,0.1)",
+                  color: REGIME_TEXT_COLORS[regime] ?? "#8b949e",
+                  opacity: hoveredIdx !== null && hoveredIdx !== seg.idx ? 0.4 : 1,
+                }}
+                onMouseEnter={() => setHoveredIdx(seg.idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                onClick={() => handleRegimeClick(period)}
+              >
+                {seg.width > 8 ? regime.toUpperCase().replace("-", " ") : ""}
+              </div>
+            );
+          })}
+        </div>
+        {/* Tooltip */}
+        {hoveredIdx !== null && regimePeriods[hoveredIdx] && (() => {
+          const stats = computeRegimeStats(regimePeriods[hoveredIdx], fullCandles);
+          if (!stats) return null;
+
+          // Position tooltip aligned to chart time range
+          const periodCenter = (regimePeriods[hoveredIdx].start + regimePeriods[hoveredIdx].end) / 2;
+          const centerPct = ((periodCenter - chartTimeRange.start) / totalDuration) * 100;
+          const clampedPct = Math.max(15, Math.min(85, centerPct));
+
           return (
-            <div
-              key={i}
-              className="flex items-center justify-center text-[10px] font-semibold tracking-wide cursor-pointer transition-opacity"
-              style={{
-                width: `${width}%`,
-                backgroundColor:
-                  REGIME_COLORS[regime] ?? "rgba(139,148,158,0.1)",
-                color: REGIME_TEXT_COLORS[regime] ?? "#8b949e",
-                opacity: hoveredIdx !== null && hoveredIdx !== i ? 0.4 : 1,
-              }}
-              onMouseEnter={() => setHoveredIdx(i)}
-              onMouseLeave={() => setHoveredIdx(null)}
-              onClick={() => handleRegimeClick(period)}
-            >
-              {width > 8 ? regime.toUpperCase().replace("-", " ") : ""}
+            <div className="absolute z-20 -translate-x-1/2" style={{ left: `${clampedPct}%`, top: "32px" }}>
+              <RegimeTooltip stats={stats} />
             </div>
           );
-        })}
-      </div>
-      {/* Tooltip */}
-      {hoveredIdx !== null && regimePeriods[hoveredIdx] && (() => {
-        const stats = computeRegimeStats(
-          regimePeriods[hoveredIdx],
-          fullCandles
-        );
-        if (!stats) return null;
-
-        // Position tooltip based on regime bar segment position
-        const totalDuration =
-          regimePeriods[regimePeriods.length - 1].end -
-          regimePeriods[0].start;
-        let leftPct = 0;
-        for (let j = 0; j < hoveredIdx; j++) {
-          leftPct +=
-            ((regimePeriods[j].end - regimePeriods[j].start) / totalDuration) *
-            100;
-        }
-        const segWidth =
-          ((regimePeriods[hoveredIdx].end - regimePeriods[hoveredIdx].start) /
-            totalDuration) *
-          100;
-        const centerPct = leftPct + segWidth / 2;
-        // Clamp so tooltip doesn't overflow
-        const clampedPct = Math.max(15, Math.min(85, centerPct));
-
-        return (
-          <div
-            className="absolute z-20 -translate-x-1/2"
-            style={{ left: `${clampedPct}%`, top: "32px" }}
-          >
-            <RegimeTooltip stats={stats} />
+        })()}
+        {copied && (
+          <div className="absolute top-0 right-0 text-[10px] text-[var(--green)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">
+            Copied!
           </div>
-        );
-      })()}
-      {/* Copied feedback */}
-      {copied && (
-        <div className="absolute top-0 right-0 text-[10px] text-[var(--green)] bg-[var(--bg-primary)] px-2 py-0.5 rounded">
-          Copied!
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  })();
 
   // Build merged chart data: price + equity on same time axis
   let priceChart = null;
@@ -482,8 +490,8 @@ export function RegimeTimeline({
           {regimePeriods?.map((period, i) => (
             <ReferenceArea
               key={i}
-              x1={period.start}
-              x2={period.end}
+              x1={period.start * 1000}
+              x2={period.end * 1000}
               fill={REGIME_COLORS[period.regime] ?? "transparent"}
               fillOpacity={0.8}
               yAxisId={hasCandles ? "price" : "equity"}
