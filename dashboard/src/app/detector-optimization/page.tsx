@@ -384,6 +384,7 @@ function NewOptimizationForm({ onStarted }: { onStarted: () => void }) {
             className={inputClass + " w-full"}
           >
             <option value="breakout_v3">breakout_v3</option>
+            <option value="momentum_v4">momentum_v4</option>
             <option value="ema_adx">ema_adx</option>
           </select>
         </div>

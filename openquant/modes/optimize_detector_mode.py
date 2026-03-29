@@ -32,6 +32,7 @@ _DETECTOR_REGISTRY = {
     'adx': 'openquant.regime.adx_detector.ADXRegimeDetector',
     'ema_adx': 'openquant.regime.ema_adx_detector.EmaAdxDetector',
     'breakout_v3': 'openquant.regime.breakout_detector.BreakoutDetector',
+    'momentum_v4': 'openquant.regime.momentum_detector.MomentumDetector',
     'volatility': 'openquant.regime.volatility_detector.VolatilityRegimeDetector',
     'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
 }
@@ -294,12 +295,17 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     cond_sharpe = _regime_conditional_sharpe(candles, labels)
     econ_value = _economic_value(candles, labels)
 
+    # Penalize detectors that barely detect any trends
+    trending_count = sum(1 for l in labels if l in ('trending-up', 'trending-down'))
+    trending_frac = trending_count / labeled_count
+    trending_penalty = 1.0 if trending_frac >= 0.2 else trending_frac / 0.2
+
     score = (
         0.25 * capture
         + 0.20 * stability
         + 0.25 * cond_sharpe
         + 0.30 * econ_value
-    )
+    ) * trending_penalty
 
     regime_periods = _labels_to_regime_periods(candles, labels)
 
@@ -328,6 +334,13 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'macd_slow': {'type': int, 'min': 20, 'max': 34},
             'macd_signal': {'type': int, 'min': 5, 'max': 14},
             'confirm_bars': {'type': int, 'min': 1, 'max': 4},
+        }
+    elif detector_type == 'momentum_v4':
+        return {
+            'fast_ema': {'type': int, 'min': 5, 'max': 21},
+            'slow_ema': {'type': int, 'min': 21, 'max': 55},
+            'separation_pct': {'type': float, 'min': 0.05, 'max': 0.5},
+            'confirm_bars': {'type': int, 'min': 0, 'max': 3},
         }
     else:
         return {}
