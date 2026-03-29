@@ -140,7 +140,13 @@ function DetailPanel({ selected }: { selected: any | null }) {
     );
   }
 
-  const trials = selected.best_candidates ?? selected.best_trials ?? [];
+  const rawTrials = selected.best_candidates ?? selected.best_trials ?? [];
+  // Sort by testing PnL descending — the only number that matters
+  const trials = [...rawTrials].sort((a: any, b: any) => {
+    const aPnl = a.testing_metrics?.net_profit_percentage ?? -Infinity;
+    const bPnl = b.testing_metrics?.net_profit_percentage ?? -Infinity;
+    return bPnl - aPnl;
+  });
   const completed = selected.completed_trials ?? 0;
   const total = selected.total_trials ?? 0;
   const isRunning = selected.status === "running";
