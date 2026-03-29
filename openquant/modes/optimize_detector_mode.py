@@ -83,11 +83,15 @@ def _walk_detector(detector, candles: np.ndarray):
     return labels
 
 
+_BULLISH_LABELS = frozenset({'trending-up', 'ranging-up'})
+_BEARISH_LABELS = frozenset({'trending-down', 'ranging-down'})
+
+
 def _capture_ratio(candles: np.ndarray, labels: list) -> float:
     """What fraction of up/down moves did the detector capture?
 
-    For every bar where price went up: was the detector in trending-up?
-    For every bar where price went down: was the detector in trending-down?
+    Any bullish label (trending-up or ranging-up) counts as capturing upside.
+    Any bearish label (trending-down or ranging-down) counts as capturing downside.
     Returns average of upside and downside capture in [0, 1].
     """
     up_moves = 0.0
@@ -101,11 +105,11 @@ def _capture_ratio(candles: np.ndarray, labels: list) -> float:
         ret = candles[i, 2] - candles[i - 1, 2]
         if ret > 0:
             up_moves += ret
-            if labels[i] == 'trending-up':
+            if labels[i] in _BULLISH_LABELS:
                 captured_up += ret
         elif ret < 0:
             down_moves += abs(ret)
-            if labels[i] == 'trending-down':
+            if labels[i] in _BEARISH_LABELS:
                 captured_down += abs(ret)
 
     up_cap = captured_up / up_moves if up_moves > 0 else 0
@@ -209,9 +213,9 @@ def _economic_value(candles: np.ndarray, labels: list) -> float:
     strat_returns = np.zeros_like(returns)
     for i in range(len(returns)):
         lbl = aligned_labels[i]
-        if lbl == 'trending-up':
+        if lbl in _BULLISH_LABELS:
             strat_returns[i] = returns[i]
-        elif lbl == 'trending-down':
+        elif lbl in _BEARISH_LABELS:
             strat_returns[i] = -returns[i]
 
     std = np.std(strat_returns)
@@ -281,13 +285,15 @@ def _directional_accuracy(candles: np.ndarray, labels: list) -> float:
 
     for i in range(1, len(candles)):
         lbl = labels[i]
-        if lbl not in ('trending-up', 'trending-down'):
+        if lbl is None:
             continue
         ret = candles[i, 2] - candles[i - 1, 2]
+        if ret == 0:
+            continue
         total += 1
-        if lbl == 'trending-up' and ret > 0:
+        if lbl in _BULLISH_LABELS and ret > 0:
             correct += 1
-        elif lbl == 'trending-down' and ret < 0:
+        elif lbl in _BEARISH_LABELS and ret < 0:
             correct += 1
 
     return correct / total if total > 0 else 0.5
@@ -319,11 +325,6 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     econ_value = _economic_value(candles, labels)
     direction = _directional_accuracy(candles, labels)
 
-    # Penalize detectors that barely detect any trends
-    trending_count = sum(1 for l in labels if l in ('trending-up', 'trending-down'))
-    trending_frac = trending_count / labeled_count
-    trending_penalty = 1.0 if trending_frac >= 0.2 else trending_frac / 0.2
-
     # Penalize worse-than-random directional accuracy
     direction_penalty = 1.0 if direction >= 0.5 else direction / 0.5
 
@@ -333,7 +334,7 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
         + 0.15 * cond_sharpe
         + 0.25 * econ_value
         + 0.25 * direction
-    ) * trending_penalty * direction_penalty
+    ) * direction_penalty
 
     regime_periods = _labels_to_regime_periods(candles, labels)
 
@@ -343,16 +344,16 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
 def _get_detector_param_ranges(detector_type: str) -> dict:
     """Return optimizable parameter ranges for each detector type."""
     if detector_type == 'breakout_v3':
-        # Ranges scaled for 4h candles (6 bars per day)
+        # Ranges for 4h candles — wide exploration
         return {
-            'breakout_period': {'type': int, 'min': 60, 'max': 240},
-            'fast_ema': {'type': int, 'min': 30, 'max': 126},
-            'slow_ema': {'type': int, 'min': 126, 'max': 330},
-            'separation_pct': {'type': float, 'min': 0.1, 'max': 1.0},
-            'macd_fast': {'type': int, 'min': 48, 'max': 96},
-            'macd_slow': {'type': int, 'min': 120, 'max': 204},
-            'macd_signal': {'type': int, 'min': 30, 'max': 84},
-            'confirm_bars': {'type': int, 'min': 6, 'max': 24},
+            'breakout_period': {'type': int, 'min': 18, 'max': 360},
+            'fast_ema': {'type': int, 'min': 12, 'max': 180},
+            'slow_ema': {'type': int, 'min': 60, 'max': 500},
+            'separation_pct': {'type': float, 'min': 0.01, 'max': 2.0},
+            'macd_fast': {'type': int, 'min': 18, 'max': 150},
+            'macd_slow': {'type': int, 'min': 60, 'max': 300},
+            'macd_signal': {'type': int, 'min': 12, 'max': 120},
+            'confirm_bars': {'type': int, 'min': 1, 'max': 36},
         }
     elif detector_type == 'ema_adx':
         return {
