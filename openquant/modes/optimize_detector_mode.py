@@ -357,6 +357,13 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     if len(regime_periods) < 2:
         return -1.0, regime_periods
 
+    # Must have both bullish and bearish periods — one-directional detectors
+    # are not detecting anything, just reflecting the overall trend.
+    has_bullish = any(rp['regime'] in ('trending-up', 'ranging-up') for rp in regime_periods)
+    has_bearish = any(rp['regime'] in ('trending-down', 'ranging-down') for rp in regime_periods)
+    if not (has_bullish and has_bearish):
+        return -1.0, regime_periods
+
     # Score each regime period: did the label match what price actually did?
     # Weight by the size of the move — getting big moves right matters more.
     total_weight = 0.0
@@ -366,7 +373,7 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
         pct = rp['pct_change']
         weight = abs(pct)
         if weight < 0.1:
-            continue  # ignore near-zero moves
+            continue
 
         is_bullish = rp['regime'] in ('trending-up', 'ranging-up')
         correct = (is_bullish and pct > 0) or (not is_bullish and pct < 0)
