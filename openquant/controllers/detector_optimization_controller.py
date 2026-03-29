@@ -304,12 +304,11 @@ def preview_detector(
     detector = DetectorClass(**request_json.params)
     detector.reset()
 
-    warmup = max(70, len(daily_candles) // 5)
     regime_periods = []
     current_regime = None
     period_start_idx = 0
 
-    for i in range(warmup, len(daily_candles)):
+    for i in range(1, len(daily_candles)):
         window = daily_candles[:i + 1]
         try:
             regime = detector.detect(window)

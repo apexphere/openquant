@@ -71,15 +71,14 @@ def _walk_detector(detector, candles: np.ndarray):
     Returns array of regime strings aligned with candles (warmup bars = None).
     """
     detector.reset()
-    warmup = max(70, len(candles) // 5)
     labels = [None] * len(candles)
 
-    for i in range(warmup, len(candles)):
+    for i in range(1, len(candles)):
         window = candles[:i + 1]
         try:
             labels[i] = detector.detect(window)
         except (ValueError, IndexError):
-            labels[i] = labels[i - 1] if i > 0 else None
+            continue
 
     return labels
 
