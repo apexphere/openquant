@@ -171,18 +171,29 @@ export function RegimeTimeline({
       }
     }
 
-    // Merge: price as base, interpolate equity onto price timestamps
+    // Merge: price as base, map equity value for each price point
+    // Use binary search to find the closest equity point <= each price timestamp
+    function findEquityValue(time: number): number | undefined {
+      if (equityData.length === 0) return undefined;
+      if (time <= equityData[0].time) return equityData[0].value;
+      if (time >= equityData[equityData.length - 1].time) return equityData[equityData.length - 1].value;
+      let lo = 0, hi = equityData.length - 1;
+      while (lo < hi - 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (equityData[mid].time <= time) lo = mid;
+        else hi = mid;
+      }
+      return equityData[lo].value;
+    }
+
     let mergedData: Array<{ time: number; close?: number; equity?: number }>;
 
     if (priceData.length > 0 && equityData.length > 0) {
-      let eIdx = 0;
-      mergedData = priceData.map((p) => {
-        // Advance equity index to closest point
-        while (eIdx < equityData.length - 1 && equityData[eIdx + 1].time <= p.time) {
-          eIdx++;
-        }
-        return { time: p.time, close: p.close, equity: equityData[eIdx]?.value };
-      });
+      mergedData = priceData.map((p) => ({
+        time: p.time,
+        close: p.close,
+        equity: findEquityValue(p.time),
+      }));
     } else if (priceData.length > 0) {
       mergedData = priceData.map((p) => ({ time: p.time, close: p.close }));
     } else if (equityData.length > 0) {
