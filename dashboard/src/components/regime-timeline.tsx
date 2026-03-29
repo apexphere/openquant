@@ -149,48 +149,44 @@ export function RegimeTimeline({
 
   if (hasCandles || hasEquity) {
     // Build price data
+    // Extract candle data — candles_chart is [{exchange, symbol, timeframe, candles: [{time, open, close, high, low, volume}]}]
     let priceData: Array<{ time: number; close: number }> = [];
     if (hasCandles) {
-      const raw = chartData!.candles_chart.map((c) => ({
-        time: c[0],
-        close: c[4],
+      const candlesList = (chartData!.candles_chart as any);
+      const rawCandles = Array.isArray(candlesList) && candlesList.length > 0 && candlesList[0].candles
+        ? candlesList[0].candles
+        : candlesList;
+      const raw = rawCandles.map((c: any) => ({
+        time: (c.time ?? c[0]) * 1000, // convert seconds to ms
+        close: c.close ?? c[4],
       }));
       priceData = lttbDownsample(raw, 2000);
     }
 
-    // Build equity data (already daily, no downsampling needed)
-    const equityMap = new Map<number, number>();
+    // Build equity data — already daily, times in seconds
+    const equityData: Array<{ time: number; value: number }> = [];
     if (hasEquity) {
       for (const pt of equityCurve!) {
-        // Snap to day boundary for matching
-        const dayTs = Math.floor(pt.time / 86400) * 86400 * 1000;
-        equityMap.set(pt.time * 1000, pt.value);
+        equityData.push({ time: pt.time * 1000, value: pt.value }); // seconds to ms
       }
     }
 
-    // Merge: use price data as base timeline, attach equity values
+    // Merge: price as base, interpolate equity onto price timestamps
     let mergedData: Array<{ time: number; close?: number; equity?: number }>;
 
-    if (priceData.length > 0) {
+    if (priceData.length > 0 && equityData.length > 0) {
+      let eIdx = 0;
       mergedData = priceData.map((p) => {
-        // Find closest equity point
-        let closestEquity: number | undefined;
-        let minDiff = Infinity;
-        for (const [eTime, eVal] of equityMap) {
-          const diff = Math.abs(p.time - eTime);
-          if (diff < minDiff) {
-            minDiff = diff;
-            closestEquity = eVal;
-          }
+        // Advance equity index to closest point
+        while (eIdx < equityData.length - 1 && equityData[eIdx + 1].time <= p.time) {
+          eIdx++;
         }
-        return { time: p.time, close: p.close, equity: closestEquity };
+        return { time: p.time, close: p.close, equity: equityData[eIdx]?.value };
       });
-    } else if (hasEquity) {
-      // No price data, just equity
-      mergedData = equityCurve!.map((pt) => ({
-        time: pt.time * 1000,
-        equity: pt.value,
-      }));
+    } else if (priceData.length > 0) {
+      mergedData = priceData.map((p) => ({ time: p.time, close: p.close }));
+    } else if (equityData.length > 0) {
+      mergedData = equityData.map((pt) => ({ time: pt.time, equity: pt.value }));
     } else {
       mergedData = [];
     }
