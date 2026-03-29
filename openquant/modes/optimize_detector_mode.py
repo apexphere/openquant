@@ -270,13 +270,38 @@ def _build_period(candles: np.ndarray, regime: str, si: int, ei: int) -> dict:
     }
 
 
-def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
-    """Composite score combining 4 metrics.
+def _directional_accuracy(candles: np.ndarray, labels: list) -> float:
+    """Penalize trending labels that go the wrong direction.
 
-    1. Capture ratio (25%):  fraction of up/down moves correctly classified
-    2. Stability (20%):      penalizes whipsawing
-    3. Conditional Sharpe (25%): regime labels separate return distributions
-    4. Economic value (30%): Sharpe of regime-following strategy
+    For each trending-up bar, did price actually go up?
+    For each trending-down bar, did price actually go down?
+    Returns accuracy in [0, 1]. 0.5 = random, 1.0 = perfect.
+    """
+    correct = 0
+    total = 0
+
+    for i in range(1, len(candles)):
+        lbl = labels[i]
+        if lbl not in ('trending-up', 'trending-down'):
+            continue
+        ret = candles[i, 2] - candles[i - 1, 2]
+        total += 1
+        if lbl == 'trending-up' and ret > 0:
+            correct += 1
+        elif lbl == 'trending-down' and ret < 0:
+            correct += 1
+
+    return correct / total if total > 0 else 0.5
+
+
+def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
+    """Composite score combining 5 metrics.
+
+    1. Capture ratio (20%):  fraction of up/down moves correctly classified
+    2. Stability (15%):      penalizes whipsawing
+    3. Conditional Sharpe (15%): regime labels separate return distributions
+    4. Economic value (25%): Sharpe of regime-following strategy
+    5. Directional accuracy (25%): trending labels match actual price direction
 
     Returns (score, regime_periods). Regime periods include price stats.
     """
@@ -285,7 +310,6 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
 
     labels = _walk_detector(detector, candles)
 
-    # Check we have enough labeled bars
     labeled_count = sum(1 for l in labels if l is not None)
     if labeled_count < 50:
         return -1.0, []
@@ -294,18 +318,23 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     stability = _stability_score(labels)
     cond_sharpe = _regime_conditional_sharpe(candles, labels)
     econ_value = _economic_value(candles, labels)
+    direction = _directional_accuracy(candles, labels)
 
     # Penalize detectors that barely detect any trends
     trending_count = sum(1 for l in labels if l in ('trending-up', 'trending-down'))
     trending_frac = trending_count / labeled_count
     trending_penalty = 1.0 if trending_frac >= 0.2 else trending_frac / 0.2
 
+    # Penalize worse-than-random directional accuracy
+    direction_penalty = 1.0 if direction >= 0.5 else direction / 0.5
+
     score = (
-        0.25 * capture
-        + 0.20 * stability
-        + 0.25 * cond_sharpe
-        + 0.30 * econ_value
-    ) * trending_penalty
+        0.20 * capture
+        + 0.15 * stability
+        + 0.15 * cond_sharpe
+        + 0.25 * econ_value
+        + 0.25 * direction
+    ) * trending_penalty * direction_penalty
 
     regime_periods = _labels_to_regime_periods(candles, labels)
 
