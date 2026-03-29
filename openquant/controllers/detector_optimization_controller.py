@@ -355,6 +355,146 @@ def preview_detector(
     })
 
 
+@router.post("/sessions/{study_name}/trials/{trial_number}/regimes")
+def get_trial_regimes(
+    study_name: str,
+    trial_number: int,
+    authorization: Optional[str] = Header(None),
+):
+    """Get regime details for a specific trial in a study.
+
+    Looks up trial params from Optuna, runs the detector, and returns
+    regime periods with price stats (start/end price, high, low, pct change).
+    """
+    if not authenticator.is_valid_token(authorization):
+        return authenticator.unauthorized_response()
+
+    if not os.path.exists(OPTUNA_DB):
+        return JSONResponse({'error': 'No optimization data found'}, status_code=404)
+
+    import optuna
+    import numpy as np
+
+    storage = f'sqlite:///{OPTUNA_DB}'
+
+    try:
+        study = optuna.load_study(study_name=study_name, storage=storage)
+    except KeyError:
+        return JSONResponse({'error': f'Study {study_name} not found'}, status_code=404)
+
+    # Find the trial
+    trial = None
+    for t in study.trials:
+        if t.number == trial_number:
+            trial = t
+            break
+
+    if trial is None:
+        return JSONResponse({'error': f'Trial {trial_number} not found'}, status_code=404)
+
+    detector_type = _parse_detector_type(study_name)
+    params = trial.params
+
+    from openquant.modes.optimize_detector_mode import (
+        _resolve_detector_class,
+        _resample_to_timeframe,
+    )
+    from openquant.models.Candle import Candle
+
+    # Default date range — use BTC full range
+    exchange = 'Bybit USDT Perpetual'
+    symbol = 'BTC-USDT'
+    start_ts = jh.date_to_timestamp('2025-06-01')
+    finish_ts = jh.date_to_timestamp('2026-03-25')
+
+    candles_raw = (
+        Candle.select()
+        .where(
+            Candle.exchange == exchange,
+            Candle.symbol == symbol,
+            Candle.timestamp >= start_ts,
+            Candle.timestamp <= finish_ts,
+        )
+        .order_by(Candle.timestamp)
+    )
+
+    candles_1m = np.array([
+        [c.timestamp, c.open, c.close, c.high, c.low, c.volume]
+        for c in candles_raw
+    ])
+
+    if len(candles_1m) == 0:
+        return JSONResponse({'error': 'No candle data found'}, status_code=404)
+
+    daily_candles = _resample_to_timeframe(candles_1m, 1440)
+
+    if len(daily_candles) < 100:
+        return JSONResponse({'error': f'Need 100+ daily candles, got {len(daily_candles)}'}, status_code=400)
+
+    # Run detector
+    DetectorClass = _resolve_detector_class(detector_type)
+    detector = DetectorClass(**params)
+    detector.reset()
+
+    warmup = max(70, len(daily_candles) // 5)
+    regime_periods = []
+    current_regime = None
+    period_start_idx = 0
+
+    for i in range(warmup, len(daily_candles)):
+        window = daily_candles[:i + 1]
+        try:
+            regime = detector.detect(window)
+        except (ValueError, IndexError):
+            continue
+
+        if current_regime is None:
+            current_regime = regime
+            period_start_idx = i
+
+        if regime != current_regime:
+            regime_periods.append((current_regime, period_start_idx, i))
+            current_regime = regime
+            period_start_idx = i
+
+    if current_regime is not None:
+        regime_periods.append((current_regime, period_start_idx, len(daily_candles) - 1))
+
+    # Enrich with price stats
+    results = []
+    for regime, si, ei in regime_periods:
+        segment = daily_candles[si:ei + 1]
+        start_price = round(float(segment[0, 2]), 2)
+        end_price = round(float(segment[-1, 2]), 2)
+        high = round(float(np.max(segment[:, 3])), 2)
+        low = round(float(np.min(segment[:, 4])), 2)
+        pct_change = round((end_price - start_price) / start_price * 100, 2) if start_price > 0 else 0
+        days = ei - si
+
+        results.append({
+            'regime': regime,
+            'start_date': jh.timestamp_to_date(int(daily_candles[si, 0])),
+            'end_date': jh.timestamp_to_date(int(daily_candles[ei, 0])),
+            'days': days,
+            'start_price': start_price,
+            'end_price': end_price,
+            'high': high,
+            'low': low,
+            'pct_change': pct_change,
+        })
+
+    return JSONResponse({
+        'trial': trial_number,
+        'score': round(trial.value, 4) if trial.value is not None else None,
+        'params': {
+            k: round(v, 4) if isinstance(v, float) else v
+            for k, v in params.items()
+        },
+        'detector_type': detector_type,
+        'regime_periods': results,
+    })
+
+
 @router.post("/detector-types")
 def get_detector_types(
     authorization: Optional[str] = Header(None),
