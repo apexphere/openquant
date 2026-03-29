@@ -602,6 +602,97 @@ def optimize_detector(detector_type, start, finish, exchange, symbol, trials) ->
         database.close_connection()
 
 
+@cli.command('detector-results')
+@click.argument('study_name', required=False)
+@click.option('--trial', '-t', type=int, help='Show regime details for a specific trial')
+def detector_results(study_name, trial) -> None:
+    """List detector optimization results or show details for a study.
+
+    Examples:
+
+        jesse detector-results
+
+        jesse detector-results supertrend_v5_abc123
+
+        jesse detector-results supertrend_v5_abc123 -t 42
+    """
+    import optuna
+    import os
+
+    db_path = './storage/temp/optuna/detector_optuna.db'
+    if not os.path.exists(db_path):
+        click.echo('No detector optimization data found.')
+        return
+
+    storage = f'sqlite:///{db_path}'
+
+    if not study_name:
+        # List all studies
+        summaries = optuna.study.get_all_study_summaries(storage=storage)
+        summaries.sort(key=lambda s: s.datetime_start or '', reverse=True)
+
+        click.echo(f'{"Detector":<18} {"Trials":>7} {"Best":>8} {"Started":<20}')
+        click.echo('-' * 58)
+        for s in summaries:
+            best = f'{s.best_trial.value:.4f}' if s.best_trial and s.best_trial.value is not None else '—'
+            dt = s.datetime_start.strftime('%Y-%m-%d %H:%M') if s.datetime_start else '—'
+            click.echo(f'{s.study_name[:18]:<18} {s.n_trials:>7} {best:>8} {dt:<20}')
+        return
+
+    # Show specific study
+    try:
+        study = optuna.load_study(study_name=study_name, storage=storage)
+    except KeyError:
+        click.echo(f'Study {study_name} not found.')
+        return
+
+    if trial is not None:
+        # Show regime details for a specific trial
+        t = None
+        for tr in study.trials:
+            if tr.number == trial:
+                t = tr
+                break
+        if t is None:
+            click.echo(f'Trial {trial} not found.')
+            return
+
+        click.echo(f'Trial #{t.number}  Score: {t.value:.4f}')
+        click.echo(f'Params: {t.params}')
+
+        import json as json_lib
+        stored = t.user_attrs.get('regime_periods')
+        if stored:
+            periods = json_lib.loads(stored)
+            click.echo()
+            click.echo(f'{"Regime":<16} {"Days":>5} {"Start":>10} {"End":>10} {"Change":>8}')
+            click.echo('-' * 55)
+            for rp in periods:
+                click.echo(
+                    f'{rp["regime"]:<16} {rp["days"]:>5} '
+                    f'{rp["start_price"]:>10,.0f} {rp["end_price"]:>10,.0f} '
+                    f'{rp["pct_change"]:>+7.1f}%'
+                )
+        return
+
+    # Show top trials
+    trials_sorted = sorted(
+        [t for t in study.trials if t.value is not None],
+        key=lambda t: t.value,
+        reverse=True,
+    )[:10]
+
+    click.echo(f'Study: {study_name}')
+    click.echo(f'Total trials: {len(study.trials)}')
+    click.echo(f'Best score: {study.best_value:.4f}' if study.best_trial else 'No completed trials')
+    click.echo()
+    click.echo(f'{"Trial":>7} {"Score":>8}  Params')
+    click.echo('-' * 70)
+    for t in trials_sorted:
+        params_str = ', '.join(f'{k}={v:.2f}' if isinstance(v, float) else f'{k}={v}' for k, v in t.params.items())
+        click.echo(f'{t.number:>7} {t.value:>8.4f}  {params_str}')
+
+
 @cli.command('resume-optimize')
 @click.argument('session_id')
 def resume_optimize(session_id) -> None:
