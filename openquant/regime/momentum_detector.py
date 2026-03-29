@@ -183,14 +183,6 @@ class MomentumDetector:
             self._confirmed_regime = raw_regime
             return raw_regime
 
-        # No direct trend reversal: trending-up cannot go straight to
-        # trending-down (or vice versa). Must pass through ranging first.
-        if (
-            self._confirmed_regime == 'trending-up' and raw_regime == 'trending-down'
-            or self._confirmed_regime == 'trending-down' and raw_regime == 'trending-up'
-        ):
-            raw_regime = 'ranging-down' if raw_regime == 'trending-up' else 'ranging-up'
-
         # Any regime change requires confirmation
         if raw_regime != self._confirmed_regime:
             if raw_regime == self._pending_regime:
