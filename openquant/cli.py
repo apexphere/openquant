@@ -257,8 +257,9 @@ def cli() -> None:
 @click.option('--warmup', default=210, type=int, help='Warmup candles')
 @click.option('--data-routes', default=None, help='Extra timeframes, comma-separated (e.g., 1D,4h)')
 @click.option('--json-output', is_flag=True, help='Output raw JSON instead of formatted text')
+@click.option('--hp', default=None, help='Hyperparameters as JSON string')
 def backtest(strategy, start, finish, exchange, symbol, timeframe,
-             balance, fee, warmup, data_routes, json_output) -> None:
+             balance, fee, warmup, data_routes, json_output, hp) -> None:
     """Run a backtest for STRATEGY and display results.
 
     Requires the server to be running (jesse run).
@@ -317,6 +318,9 @@ def backtest(strategy, start, finish, exchange, symbol, timeframe,
         'fast_mode': False,
         'benchmark': True,
     }
+
+    if hp:
+        payload['hyperparameters'] = json.loads(hp)
 
     click.echo(f'Backtesting {strategy} on {symbol} ({timeframe})')
     click.echo(f'Period: {start} → {finish} | Balance: ${balance:,.0f} | Fee: {fee*100:.2f}%')
