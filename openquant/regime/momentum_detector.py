@@ -169,7 +169,12 @@ class MomentumDetector:
                 return 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
 
     def _apply_confirmation(self, raw_regime: str) -> str:
-        """Confirmation with fast exits."""
+        """All regime changes require confirmation.
+
+        Entry (ranging → trending): confirm_bars of consistent signal.
+        Exit (trending → ranging): also confirm_bars — one bar dipping
+        below the slow EMA shouldn't kill the trend.
+        """
         if self._confirmed_regime is None:
             self._confirmed_regime = raw_regime
             return raw_regime
@@ -178,18 +183,7 @@ class MomentumDetector:
             self._confirmed_regime = raw_regime
             return raw_regime
 
-        # Fast exit: trending → ranging is immediate
-        is_exit = (
-            self._confirmed_regime in ('trending-up', 'trending-down')
-            and raw_regime in ('ranging-up', 'ranging-down')
-        )
-        if is_exit:
-            self._confirmed_regime = raw_regime
-            self._pending_regime = None
-            self._pending_count = 0
-            return raw_regime
-
-        # Entry: ranging → trending needs confirm_bars
+        # Any regime change requires confirmation
         if raw_regime != self._confirmed_regime:
             if raw_regime == self._pending_regime:
                 self._pending_count += 1
@@ -202,6 +196,7 @@ class MomentumDetector:
                 self._pending_regime = None
                 self._pending_count = 0
         else:
+            # Signal matches current regime — reset any pending change
             self._pending_regime = None
             self._pending_count = 0
 
