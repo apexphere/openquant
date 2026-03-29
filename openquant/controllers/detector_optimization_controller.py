@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from typing import Optional
 from pydantic import BaseModel
 import os
+import re
 
 from openquant.services import auth as authenticator
 from openquant.services.multiprocessing import process_manager
@@ -12,6 +13,15 @@ from openquant import helpers as jh
 router = APIRouter(prefix="/detector-optimization", tags=["Detector Optimization"])
 
 OPTUNA_DB = './storage/temp/optuna/detector_optuna.db'
+
+# UUID pattern at the end of study names: {detector_type}_{uuid}
+_UUID_PATTERN = re.compile(r'^(.+)_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$')
+
+
+def _parse_detector_type(study_name: str) -> str:
+    """Extract detector type from study name like 'breakout_v3_593c81aa-...'."""
+    m = _UUID_PATTERN.match(study_name)
+    return m.group(1) if m else study_name
 
 
 class DetectorOptimizationRequestJson(BaseModel):
@@ -131,9 +141,7 @@ def get_detector_optimization_sessions(
 
     sessions = []
     for s in summaries:
-        # Study name format: {detector_type}_{session_id}
-        parts = s.study_name.split('_', 1)
-        detector_type = parts[0] if parts else s.study_name
+        detector_type = _parse_detector_type(s.study_name)
 
         best_value = s.best_trial.value if s.best_trial else None
         best_params = s.best_trial.params if s.best_trial else {}
@@ -177,8 +185,7 @@ def get_detector_optimization_session(
     except KeyError:
         return JSONResponse({'error': f'Study {study_name} not found'}, status_code=404)
 
-    parts = study_name.split('_', 1)
-    detector_type = parts[0] if parts else study_name
+    detector_type = _parse_detector_type(study_name)
 
     # Build sorted trials list (top 20 by value)
     trials_sorted = sorted(
