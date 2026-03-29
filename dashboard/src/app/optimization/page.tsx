@@ -159,12 +159,12 @@ function DetailPanel({ selected }: { selected: any | null }) {
 
   // Extract training/testing timeline from state
   const form = selected.state?.form ?? {};
-  const trainPeriod = form.training_start && form.training_finish
-    ? `${form.training_start} → ${form.training_finish}`
-    : null;
-  const testPeriod = form.testing_start && form.testing_finish
-    ? `${form.testing_start} → ${form.testing_finish}`
-    : null;
+  const trainStart = form.training_start_date ?? form.training_start;
+  const trainFinish = form.training_finish_date ?? form.training_finish;
+  const testStart = form.testing_start_date ?? form.testing_start;
+  const testFinish = form.testing_finish_date ?? form.testing_finish;
+  const trainPeriod = trainStart && trainFinish ? `${trainStart} → ${trainFinish}` : null;
+  const testPeriod = testStart && testFinish ? `${testStart} → ${testFinish}` : null;
 
   // Duration: for running sessions show elapsed, for finished show execution_duration
   const durationStr = selected.execution_duration
