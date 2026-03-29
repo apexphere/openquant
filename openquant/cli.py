@@ -496,6 +496,112 @@ def optimize(strategy, training_start, training_finish, testing_start,
     click.echo('Optimization started. Check the dashboard for progress.')
 
 
+@cli.command('optimize-detector')
+@click.argument('detector_type')
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--finish', required=True, help='Finish date (YYYY-MM-DD)')
+@click.option('--exchange', default='Bybit USDT Perpetual')
+@click.option('--symbol', default='BTC-USDT')
+@click.option('--trials', default=200, type=int, help='Number of Optuna trials')
+def optimize_detector(detector_type, start, finish, exchange, symbol, trials) -> None:
+    """Optimize detector parameters independently from trading behavior.
+
+    Scores regime classification accuracy against actual price movements.
+    Does NOT run backtests or trades. Runs locally (no server needed).
+
+    Examples:
+
+        jesse optimize-detector breakout_v3 --start 2025-06-01 --finish 2026-03-25
+
+        jesse optimize-detector ema_adx --start 2025-06-01 --finish 2026-03-25 --trials 500
+    """
+    from openquant.modes.optimize_detector_mode import (
+        run_detector_optimization,
+        _get_detector_param_ranges,
+    )
+    from openquant.services.db import database
+
+    param_ranges = _get_detector_param_ranges(detector_type)
+    if not param_ranges:
+        click.echo(f'Unknown detector type: {detector_type}')
+        click.echo(f'Available: breakout_v3, ema_adx')
+        sys.exit(1)
+
+    click.echo(f'Optimizing detector: {detector_type}')
+    click.echo(f'Period: {start} → {finish}')
+    click.echo(f'Symbol: {symbol} | Trials: {trials}')
+    click.echo(f'Params: {", ".join(param_ranges.keys())}')
+    click.echo()
+
+    # Load 1-minute candles from database
+    database.open_connection()
+    try:
+        from openquant.models.Candle import Candle
+        import numpy as np
+
+        start_ts = jh.date_to_timestamp(start)
+        finish_ts = jh.date_to_timestamp(finish)
+
+        candles_raw = (
+            Candle.select()
+            .where(
+                Candle.exchange == exchange,
+                Candle.symbol == symbol,
+                Candle.timestamp >= start_ts,
+                Candle.timestamp <= finish_ts,
+            )
+            .order_by(Candle.timestamp)
+        )
+
+        candles = np.array([
+            [c.timestamp, c.open, c.close, c.high, c.low, c.volume]
+            for c in candles_raw
+        ])
+
+        if len(candles) == 0:
+            click.echo(f'No candle data found for {symbol} on {exchange} in this period.')
+            click.echo(f'Run: jesse import-candles {exchange} {symbol} {start}')
+            sys.exit(1)
+
+        click.echo(f'Loaded {len(candles):,} 1-minute candles')
+        click.echo(f'Running {trials} trials...')
+        click.echo()
+
+        result = run_detector_optimization(
+            detector_type=detector_type,
+            candles=candles,
+            n_trials=trials,
+        )
+
+        # Display results
+        click.echo('=' * 60)
+        click.echo(f'DETECTOR OPTIMIZATION COMPLETE')
+        click.echo(f'Best score: {result["best_score"]:.4f}')
+        click.echo(f'Training bars: {result["training_bars"]} | Total bars: {result["total_bars"]}')
+        click.echo()
+        click.echo('Best params:')
+        for k, v in sorted(result['best_params'].items()):
+            if isinstance(v, float):
+                click.echo(f'  {k}: {v:.4f}')
+            else:
+                click.echo(f'  {k}: {v}')
+
+        click.echo()
+        click.echo(f'Top 5 trials:')
+        click.echo(f'{"Trial":>7} {"Train":>8} {"Full":>8} {"Score":>8}')
+        click.echo('-' * 35)
+        for t in result['best_trials'][:5]:
+            click.echo(
+                f'{t["trial"]:>7} {t["train_score"]:>8.4f} {t["full_score"]:>8.4f} {t["composite"]:>8.4f}'
+            )
+
+        click.echo()
+        click.echo('To apply these params, update your strategy config.yaml detector.params section.')
+
+    finally:
+        database.close_connection()
+
+
 @cli.command('resume-optimize')
 @click.argument('session_id')
 def resume_optimize(session_id) -> None:

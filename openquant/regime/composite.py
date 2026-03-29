@@ -28,6 +28,7 @@ _DETECTOR_REGISTRY = {
     'ema_adx': 'openquant.regime.ema_adx_detector.EmaAdxDetector',
     'volatility': 'openquant.regime.volatility_detector.VolatilityRegimeDetector',
     'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
+    'breakout_v3': 'openquant.regime.breakout_detector.BreakoutDetector',
 }
 
 _BEHAVIOR_REGISTRY = {
