@@ -116,7 +116,7 @@ export default function BacktestDetailPage() {
       ? "text-[var(--green)]"
       : "text-[var(--red)]";
   const vsColor =
-    metrics?.benchmark?.strat_vs_buy_and_hold != null &&
+    metrics?.benchmark?.alpha != null &&
     metrics.benchmark.strat_vs_buy_and_hold >= 0
       ? "text-[var(--green)]"
       : "text-[var(--red)]";
