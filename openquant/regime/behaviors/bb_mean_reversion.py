@@ -57,20 +57,22 @@ class BBMeanReversionBehavior:
     def go_long(self, strategy) -> None:
         bb = _get_bb(strategy)
         qty = _size(strategy)
+        sl_pct = strategy.hp.get('bb_sl_pct', 0.02)
 
         strategy.buy = qty, strategy.price
-        # SL: below the lower band — if price breaks the band, range is over
-        strategy.stop_loss = qty, bb[2] * (1 - strategy.hp.get('bb_sl_pct', 0.005))
+        # SL: below entry price by sl_pct — always below current price
+        strategy.stop_loss = qty, strategy.price * (1 - sl_pct)
         # TP: middle band (SMA) — quick, reliable target
         strategy.take_profit = qty, bb[0]
 
     def go_short(self, strategy) -> None:
         bb = _get_bb(strategy)
         qty = _size(strategy)
+        sl_pct = strategy.hp.get('bb_sl_pct', 0.02)
 
         strategy.sell = qty, strategy.price
-        # SL: above the upper band
-        strategy.stop_loss = qty, bb[1] * (1 + strategy.hp.get('bb_sl_pct', 0.005))
+        # SL: above entry price by sl_pct — always above current price
+        strategy.stop_loss = qty, strategy.price * (1 + sl_pct)
         # TP: middle band (SMA)
         strategy.take_profit = qty, bb[0]
 
