@@ -7,14 +7,14 @@
 detector:
   type: supertrend_v5
   params:
-    st_period: 8
-    st_factor: 4.43
-    adx_period: 39
-    adx_threshold: 33.76
-    chop_period: 52
-    chop_ranging: 53.48
-    chop_trending: 41.91
-    confirm_bars: 12
+    st_period: 10
+    st_factor: 3.0
+    adx_period: 14
+    adx_threshold: 25.0
+    chop_period: 14
+    chop_ranging: 55.0
+    chop_trending: 38.2
+    confirm_bars: 2
     timeframe: '1D'
 
 regimes:
