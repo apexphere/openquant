@@ -152,14 +152,18 @@ class SuperTrendDetector:
         if np.isnan(adx_val) or np.isnan(chop_val) or np.isnan(st.trend):
             return self._confirmed_regime or 'ranging-up'
 
-        # Is the market trending? ADX confirms strength OR CHOP confirms direction
-        # Both are trend filters — either one is enough evidence
-        has_trend_strength = adx_val > self.adx_threshold or chop_val < self.chop_trending
+        # SuperTrend direction IS the trend. It already incorporates ATR
+        # (volatility-adaptive) and only flips on meaningful breaks.
+        #
+        # ADX/CHOP distinguish ranging (choppy, no direction) from trending:
+        # - Ranging: ADX low AND CHOP high (both say "no trend")
+        # - Trending: everything else (SuperTrend already picked the direction)
+        is_ranging = adx_val < self.adx_threshold and chop_val > self.chop_ranging
 
-        if has_trend_strength:
-            return 'trending-up' if st_bullish else 'trending-down'
-        else:
+        if is_ranging:
             return 'ranging-up' if st_bullish else 'ranging-down'
+        else:
+            return 'trending-up' if st_bullish else 'trending-down'
 
     def _apply_confirmation(self, raw_regime: str) -> str:
         """Directional asymmetric confirmation.
