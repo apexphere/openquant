@@ -431,6 +431,11 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'chop_trending': {'type': float, 'min': 30.0, 'max': 55.0},
             'confirm_bars': {'type': int, 'min': 0, 'max': 12},
         }
+    elif detector_type == 'structure_v6':
+        return {
+            'swing_period': {'type': int, 'min': 5, 'max': 25},
+            'confirm_bars': {'type': int, 'min': 1, 'max': 5},
+        }
     else:
         return {}
 
