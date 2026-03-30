@@ -492,9 +492,13 @@ def run_detector_optimization(
         detector = DetectorClass(**params)
         score, regime_periods = score_detector(detector, daily_candles)
 
-        # Store regime periods in Optuna trial attrs (persisted in SQLite)
+        # Store regime periods only for decent trials (avoid SQLite overflow)
         import json
-        trial.set_user_attr('regime_periods', json.dumps(regime_periods))
+        if score > 0.3 and len(regime_periods) < 50:
+            try:
+                trial.set_user_attr('regime_periods', json.dumps(regime_periods))
+            except Exception:
+                pass  # skip if too large
 
         # Store trial info
         trial_info = {
