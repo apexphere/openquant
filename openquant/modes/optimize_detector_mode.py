@@ -420,16 +420,17 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'confirm_bars': {'type': int, 'min': 0, 'max': 18},
         }
     elif detector_type == 'supertrend_v5':
-        # Ranges for 4h candles
+        # Ranges for daily candles
         return {
-            'st_period': {'type': int, 'min': 5, 'max': 80},
+            'st_period': {'type': int, 'min': 5, 'max': 30},
             'st_factor': {'type': float, 'min': 1.5, 'max': 5.0},
-            'adx_period': {'type': int, 'min': 7, 'max': 60},
-            'adx_threshold': {'type': float, 'min': 12.0, 'max': 35.0},
-            'chop_period': {'type': int, 'min': 7, 'max': 60},
+            'adx_period': {'type': int, 'min': 7, 'max': 30},
+            'adx_threshold': {'type': float, 'min': 15.0, 'max': 35.0},
+            'chop_period': {'type': int, 'min': 7, 'max': 30},
             'chop_ranging': {'type': float, 'min': 45.0, 'max': 70.0},
             'chop_trending': {'type': float, 'min': 30.0, 'max': 55.0},
-            'confirm_bars': {'type': int, 'min': 0, 'max': 12},
+            'confirm_bars': {'type': int, 'min': 1, 'max': 5},
+            'exit_confirm_bars': {'type': int, 'min': 3, 'max': 10},
         }
     elif detector_type == 'structure_v6':
         return {
