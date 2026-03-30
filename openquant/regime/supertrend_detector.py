@@ -85,8 +85,10 @@ class SuperTrendDetector:
         chop_period: int = 14,
         chop_ranging: float = 55.0,
         chop_trending: float = 38.2,
-        confirm_bars: int = 2,
-        exit_confirm_bars: int = 5,
+        bull_entry_bars: int = 5,
+        bull_exit_bars: int = 5,
+        bear_entry_bars: int = 2,
+        bear_exit_bars: int = 5,
         timeframe: str = '1D',
     ) -> None:
         self.st_period = st_period
@@ -96,8 +98,10 @@ class SuperTrendDetector:
         self.chop_period = chop_period
         self.chop_ranging = chop_ranging
         self.chop_trending = chop_trending
-        self.confirm_bars = confirm_bars
-        self.exit_confirm_bars = exit_confirm_bars
+        self.bull_entry_bars = bull_entry_bars
+        self.bull_exit_bars = bull_exit_bars
+        self.bear_entry_bars = bear_entry_bars
+        self.bear_exit_bars = bear_exit_bars
         self.timeframe = timeframe
 
         self._confirmed_regime = None
@@ -158,13 +162,16 @@ class SuperTrendDetector:
             return 'ranging-up' if st_bullish else 'ranging-down'
 
     def _apply_confirmation(self, raw_regime: str) -> str:
-        """Asymmetric confirmation: easy to enter trends, hard to exit.
+        """Directional asymmetric confirmation.
 
-        Entry (ranging → trending): confirm_bars
-        Exit (trending → anything else): exit_confirm_bars (higher)
+        Bull and bear trends have different characteristics:
 
-        A confirmed trend is assumed to continue until strongly proven
-        otherwise. A small bounce shouldn't kill a bear trend.
+        Bull entry:  SLOW (5 bars) — bulls build gradually, a +5% day isn't a trend
+        Bull exit:   SLOW (5 bars) — pullbacks of 10-15% are normal in bull trends
+        Bear entry:  FAST (2 bars) — crashes start sharp, need to catch them quick
+        Bear exit:   SLOW (5 bars) — dead cat bounces are traps
+
+        Ranging transitions are fast (1-2 bars).
         """
         if self._confirmed_regime is None:
             self._confirmed_regime = raw_regime
@@ -175,9 +182,8 @@ class SuperTrendDetector:
             self._pending_count = 0
             return self._confirmed_regime
 
-        # How many bars to confirm this change?
-        is_trend_exit = self._confirmed_regime in ('trending-up', 'trending-down')
-        required = self.exit_confirm_bars if is_trend_exit else self.confirm_bars
+        # Determine required confirmation bars based on the transition
+        required = self._get_required_bars(self._confirmed_regime, raw_regime)
 
         if required <= 0:
             self._confirmed_regime = raw_regime
@@ -195,3 +201,24 @@ class SuperTrendDetector:
             self._pending_count = 0
 
         return self._confirmed_regime
+
+    def _get_required_bars(self, old: str, new: str) -> int:
+        """Get confirmation bars for a specific transition."""
+        # Entering trending-up (from anything)
+        if new == 'trending-up':
+            return self.bull_entry_bars
+
+        # Entering trending-down (from anything)
+        if new == 'trending-down':
+            return self.bear_entry_bars
+
+        # Exiting trending-up (to anything)
+        if old == 'trending-up':
+            return self.bull_exit_bars
+
+        # Exiting trending-down (to anything)
+        if old == 'trending-down':
+            return self.bear_exit_bars
+
+        # Ranging ↔ ranging transitions: fast
+        return 1

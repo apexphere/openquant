@@ -429,8 +429,10 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'chop_period': {'type': int, 'min': 7, 'max': 30},
             'chop_ranging': {'type': float, 'min': 45.0, 'max': 70.0},
             'chop_trending': {'type': float, 'min': 30.0, 'max': 55.0},
-            'confirm_bars': {'type': int, 'min': 1, 'max': 5},
-            'exit_confirm_bars': {'type': int, 'min': 3, 'max': 10},
+            'bull_entry_bars': {'type': int, 'min': 3, 'max': 10},
+            'bull_exit_bars': {'type': int, 'min': 3, 'max': 10},
+            'bear_entry_bars': {'type': int, 'min': 1, 'max': 5},
+            'bear_exit_bars': {'type': int, 'min': 3, 'max': 10},
         }
     elif detector_type == 'structure_v6':
         return {

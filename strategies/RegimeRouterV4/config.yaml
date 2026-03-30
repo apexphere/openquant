@@ -14,8 +14,10 @@ detector:
     chop_period: 14
     chop_ranging: 55.0
     chop_trending: 38.2
-    confirm_bars: 2
-    exit_confirm_bars: 5
+    bull_entry_bars: 5
+    bull_exit_bars: 5
+    bear_entry_bars: 2
+    bear_exit_bars: 5
     timeframe: '1D'
 
 regimes:
