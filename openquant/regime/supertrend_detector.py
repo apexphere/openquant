@@ -81,11 +81,12 @@ class SuperTrendDetector:
         st_period: int = 10,
         st_factor: float = 3.0,
         adx_period: int = 14,
-        adx_threshold: float = 20.0,
+        adx_threshold: float = 25.0,
         chop_period: int = 14,
         chop_ranging: float = 55.0,
-        chop_trending: float = 45.0,
-        confirm_bars: int = 1,
+        chop_trending: float = 38.2,
+        confirm_bars: int = 2,
+        exit_confirm_bars: int = 5,
         timeframe: str = '1D',
     ) -> None:
         self.st_period = st_period
@@ -96,6 +97,7 @@ class SuperTrendDetector:
         self.chop_ranging = chop_ranging
         self.chop_trending = chop_trending
         self.confirm_bars = confirm_bars
+        self.exit_confirm_bars = exit_confirm_bars
         self.timeframe = timeframe
 
         self._confirmed_regime = None
@@ -156,27 +158,39 @@ class SuperTrendDetector:
             return 'ranging-up' if st_bullish else 'ranging-down'
 
     def _apply_confirmation(self, raw_regime: str) -> str:
-        """All regime changes require confirmation."""
+        """Asymmetric confirmation: easy to enter trends, hard to exit.
+
+        Entry (ranging → trending): confirm_bars
+        Exit (trending → anything else): exit_confirm_bars (higher)
+
+        A confirmed trend is assumed to continue until strongly proven
+        otherwise. A small bounce shouldn't kill a bear trend.
+        """
         if self._confirmed_regime is None:
             self._confirmed_regime = raw_regime
             return raw_regime
 
-        if self.confirm_bars <= 0:
+        if raw_regime == self._confirmed_regime:
+            self._pending_regime = None
+            self._pending_count = 0
+            return self._confirmed_regime
+
+        # How many bars to confirm this change?
+        is_trend_exit = self._confirmed_regime in ('trending-up', 'trending-down')
+        required = self.exit_confirm_bars if is_trend_exit else self.confirm_bars
+
+        if required <= 0:
             self._confirmed_regime = raw_regime
             return raw_regime
 
-        if raw_regime != self._confirmed_regime:
-            if raw_regime == self._pending_regime:
-                self._pending_count += 1
-            else:
-                self._pending_regime = raw_regime
-                self._pending_count = 1
-
-            if self._pending_count >= self.confirm_bars:
-                self._confirmed_regime = raw_regime
-                self._pending_regime = None
-                self._pending_count = 0
+        if raw_regime == self._pending_regime:
+            self._pending_count += 1
         else:
+            self._pending_regime = raw_regime
+            self._pending_count = 1
+
+        if self._pending_count >= required:
+            self._confirmed_regime = raw_regime
             self._pending_regime = None
             self._pending_count = 0
 
