@@ -146,8 +146,9 @@ class SuperTrendDetector:
         if np.isnan(adx_val) or np.isnan(chop_val) or np.isnan(st.trend):
             return self._confirmed_regime or 'ranging-up'
 
-        # Is the market trending? Need both ADX strength AND not choppy
-        has_trend_strength = adx_val > self.adx_threshold and chop_val < self.chop_trending
+        # Is the market trending? ADX confirms strength OR CHOP confirms direction
+        # Both are trend filters — either one is enough evidence
+        has_trend_strength = adx_val > self.adx_threshold or chop_val < self.chop_trending
 
         if has_trend_strength:
             return 'trending-up' if st_bullish else 'trending-down'
