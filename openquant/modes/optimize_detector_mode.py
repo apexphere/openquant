@@ -72,7 +72,17 @@ def _walk_detector(detector, candles: np.ndarray, visible_start_idx: int = 0):
 
     Feeds ALL candles to the detector (for warmup), but only returns
     labels from visible_start_idx onwards. Earlier bars get None.
+
+    Uses detect_all() when available (O(n) — indicators computed once).
+    Falls back to bar-by-bar detect() (O(n²) — indicators recomputed per bar).
     """
+    if hasattr(detector, 'detect_all'):
+        labels = detector.detect_all(candles)
+        # Mask warmup bars before visible range
+        for i in range(visible_start_idx):
+            labels[i] = None
+        return labels
+
     detector.reset()
     labels = [None] * len(candles)
 

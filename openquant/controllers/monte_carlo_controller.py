@@ -24,7 +24,7 @@ from openquant.models.MonteCarloSession import (
     purge_monte_carlo_sessions,
     get_running_monte_carlo_session_id
 )
-from openquant.services.transformers import get_monte_carlo_session, get_monte_carlo_session_for_load_more
+from openquant.services.transformers import get_monte_carlo_session, get_monte_carlo_session_for_load_more, bulk_prefetch_monte_carlo_children
 from openquant.modes.monte_carlo_mode import run as run_monte_carlo
 
 
@@ -210,8 +210,18 @@ def get_monte_carlo_sessions_endpoint(request_json: GetMonteCarloSessionsRequest
         date_filter=request_json.date_filter
     )
 
+    # Prefetch child sessions in 2 queries instead of 2*N
+    trades_by_parent, candles_by_parent = bulk_prefetch_monte_carlo_children(sessions)
+
     # Transform the sessions using the transformer
-    transformed_sessions = [get_monte_carlo_session(session) for session in sessions]
+    transformed_sessions = [
+        get_monte_carlo_session(
+            session,
+            prefetched_trades=trades_by_parent.get(session.id),
+            prefetched_candles=candles_by_parent.get(session.id),
+        )
+        for session in sessions
+    ]
 
     return JSONResponse({
         'sessions': transformed_sessions,

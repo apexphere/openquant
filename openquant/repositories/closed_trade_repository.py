@@ -40,6 +40,45 @@ def populate_order_arrays(trade: ClosedTrade) -> ClosedTrade:
     return trade
 
 
+def bulk_populate_order_arrays(trades: List[ClosedTrade]) -> List[ClosedTrade]:
+    """
+    Populate buy_orders and sell_orders for multiple trades in a single query.
+    Eliminates the N+1 query problem when loading trades for a session.
+    """
+    if not trades:
+        return trades
+
+    trade_ids = [trade.id for trade in trades]
+
+    # Single query for all orders across all trades
+    all_orders = list(
+        Order.select()
+        .where(Order.trade_id.in_(trade_ids))
+        .where(Order.status == order_statuses.EXECUTED)
+        .order_by(Order.executed_at)
+    )
+
+    # Group orders by trade_id
+    orders_by_trade = {}
+    for order in all_orders:
+        trade_id = order.trade_id
+        if trade_id not in orders_by_trade:
+            orders_by_trade[trade_id] = []
+        orders_by_trade[trade_id].append(order)
+
+    # Assign orders to each trade
+    for trade in trades:
+        trade_orders = orders_by_trade.get(trade.id, [])
+        trade.orders = trade_orders
+        for o in trade_orders:
+            if o.side == sides.BUY:
+                trade.buy_orders.append(np.array([abs(o.filled_qty), o.price]))
+            elif o.side == sides.SELL:
+                trade.sell_orders.append(np.array([abs(o.filled_qty), o.price]))
+
+    return trades
+
+
 def find_by_id(trade_id: str) -> Optional[ClosedTrade]:
     if jh.is_unit_testing():
         return None
@@ -73,8 +112,7 @@ def find_by_session_id(session_id: str, limit: int = None) -> List[ClosedTrade]:
         query = query.limit(limit)
     
     trades = list(query)
-    for trade in trades:
-        populate_order_arrays(trade)
+    bulk_populate_order_arrays(trades)
     return trades
 
 
@@ -275,8 +313,7 @@ def find_by_filters(
 
     try:
         trades = list(query)
-        for trade in trades:
-            populate_order_arrays(trade)
+        bulk_populate_order_arrays(trades)
         return trades
     except Exception:
         # Ensure we don't poison the connection for subsequent requests.

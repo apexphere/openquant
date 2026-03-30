@@ -115,6 +115,53 @@ class MomentumDetector:
         self._pending_count = 0
         self._last_candle_timestamp = None
 
+    def detect_all(self, candles: np.ndarray) -> list:
+        """Bulk detection: precompute indicators once, classify every bar."""
+        self.reset()
+        n = len(candles)
+        labels = [None] * n
+
+        fast_ema_arr = ta.ema(candles, period=self.fast_ema, sequential=True)
+        slow_ema_arr = ta.ema(candles, period=self.slow_ema, sequential=True)
+
+        min_bars = self.slow_ema * 2
+        for i in range(1, n):
+            if i < min_bars:
+                continue
+            idx = i - 1
+            current_close = candles[idx, 2]
+            fast_ema_val = fast_ema_arr[idx]
+            slow_ema_val = slow_ema_arr[idx]
+
+            if np.isnan(slow_ema_val) or np.isnan(fast_ema_val) or np.isnan(current_close):
+                raw = self._confirmed_regime or 'ranging-up'
+            else:
+                separation = (fast_ema_val - slow_ema_val) / current_close * 100
+                emas_bullish = separation > self.separation_pct
+                emas_bearish = separation < -self.separation_pct
+                price_above_fast = current_close > fast_ema_val
+                price_below_fast = current_close < fast_ema_val
+                trending_up_entry = emas_bullish and price_above_fast
+                trending_down_entry = emas_bearish and price_below_fast
+                lost_uptrend = current_close < slow_ema_val
+                lost_downtrend = current_close > slow_ema_val
+
+                if self._confirmed_regime == 'trending-up':
+                    raw = 'ranging-down' if lost_uptrend else 'trending-up'
+                elif self._confirmed_regime == 'trending-down':
+                    raw = 'ranging-up' if lost_downtrend else 'trending-down'
+                else:
+                    if trending_up_entry:
+                        raw = 'trending-up'
+                    elif trending_down_entry:
+                        raw = 'trending-down'
+                    else:
+                        raw = 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
+
+            labels[i] = self._apply_confirmation(raw)
+
+        return labels
+
     def _classify(self, candles: np.ndarray) -> str:
         current_close = candles[-1, 2]
 

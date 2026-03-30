@@ -53,6 +53,7 @@ class BacktestSession(peewee.Model):
         indexes = (
             (('id',), True),
             (('created_at',), False),
+            (('status',), False),
         )
 
     def __init__(self, attributes: dict = None, **kwargs) -> None:

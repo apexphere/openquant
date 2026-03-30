@@ -11,7 +11,7 @@ import type {
   DetectorTrial,
   RegimePeriod,
 } from "@/lib/types";
-import { startDetectorOptimization, fetchDetectorPreview, fetchTrialRegimes } from "@/lib/api";
+import { startDetectorOptimization, fetchDetectorPreview } from "@/lib/api";
 
 function fmtScore(v: number | null | undefined): string {
   if (v == null) return "\u2014";
@@ -78,56 +78,28 @@ function DetailPanel({
   const selectedTrial = trials[selectedTrialIdx] ?? null;
 
   const loadPreview = useCallback(
-    async (trial: DetectorTrial, detectorType: string, study: string) => {
+    async (trial: DetectorTrial, detectorType: string, _study: string) => {
       setPreviewLoading(true);
       try {
-        // First fetch stored regime details (source of truth)
-        const regimeData = await fetchTrialRegimes(study, trial.trial);
-        const periods = regimeData.regime_periods;
-        setRegimeDetails(periods);
-
-        if (periods.length === 0) {
-          setPreview(null);
-          setPreviewLoading(false);
-          return;
-        }
-
-        // Derive date range from stored regime periods
-        const firstDate = periods[0].start_date ?? "2025-06-01";
-        const lastDate = periods[periods.length - 1].end_date ?? "2026-03-25";
-
-        // Fetch candle chart data for the same range
+        // Single API call — preview endpoint returns candles + full regime details
         const previewData = await fetchDetectorPreview({
           detector_type: detectorType,
           params: trial.params,
-          start_date: firstDate,
-          finish_date: lastDate,
+          start_date: "2025-06-01",
+          finish_date: "2026-03-25",
         });
 
-        // Build regime periods from stored data timestamps
-        const regimePeriods = periods
-          .filter((rp) => rp.start_ts != null)
-          .map((rp) => ({
-            start: Math.round(rp.start_ts / 1000),
-            end: Math.round(rp.end_ts / 1000),
-            regime: rp.regime,
-            color: "",
-          }));
-
-        // Fall back to preview regime periods if stored ones lack timestamps
-        const finalRegimes =
-          regimePeriods.length > 0
-            ? regimePeriods
-            : previewData.regime_periods.map((rp) => ({
-                start: rp.start,
-                end: rp.end,
-                regime: rp.regime,
-                color: "",
-              }));
+        const periods = previewData.regime_periods;
+        setRegimeDetails(periods as unknown as RegimeDetail[]);
 
         setPreview({
           candles: previewData.candles,
-          regimePeriods: finalRegimes,
+          regimePeriods: periods.map((rp) => ({
+            start: rp.start,
+            end: rp.end,
+            regime: rp.regime,
+            color: "",
+          })),
         });
       } catch {
         setPreview(null);

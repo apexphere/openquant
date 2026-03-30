@@ -181,7 +181,11 @@ export async function fetchDetectorPreview(params: {
   finish_date: string;
 }): Promise<{
   candles: Array<{ time: number; open: number; close: number; high: number; low: number; volume: number }>;
-  regime_periods: Array<{ regime: string; start: number; end: number }>;
+  regime_periods: Array<{
+    regime: string; start: number; end: number;
+    start_ts?: number; end_ts?: number; start_date?: string; end_date?: string;
+    days?: number; start_price?: number; end_price?: number; high?: number; low?: number; pct_change?: number;
+  }>;
 }> {
   return apiFetch("/detector-optimization/preview", {
     method: "POST",

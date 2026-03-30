@@ -130,6 +130,61 @@ class EmaAdxDetector:
         self._pending_count = 0
         self._last_candle_timestamp = None
 
+    def detect_all(self, candles: np.ndarray) -> list:
+        """Bulk detection: precompute indicators once, classify every bar.
+
+        Returns a list of regime labels (one per candle). Early bars that lack
+        sufficient data are None.
+        """
+        self.reset()
+        n = len(candles)
+        labels = [None] * n
+
+        # Precompute all indicators once over the full array
+        fast_ema_arr = ta.ema(candles, period=self.fast_period, sequential=True)
+        slow_ema_arr = ta.ema(candles, period=self.slow_period, sequential=True)
+        macd_result = ta.macd(candles, fast_period=self.macd_fast,
+                              slow_period=self.macd_slow,
+                              signal_period=self.macd_signal, sequential=True)
+        macd_line_arr = macd_result[0]
+        macd_hist_arr = macd_result[2]
+
+        min_bars = max(self.slow_period, self.macd_slow + self.macd_signal) * 2
+        # Walk bar-by-bar using precomputed values
+        # detect() uses candles[:-1] (completed bars), so for bar i we classify i-1
+        for i in range(1, n):
+            if i < min_bars:
+                continue
+            # Classify on completed bar (index i-1, same as candles[:i+1][:-1][-1])
+            idx = i - 1
+            fast_ema = fast_ema_arr[idx]
+            slow_ema = slow_ema_arr[idx]
+            current_close = candles[idx, 2]
+            macd_line = macd_line_arr[idx]
+            macd_hist = macd_hist_arr[idx]
+
+            if np.isnan(fast_ema) or np.isnan(slow_ema) or np.isnan(macd_line) or np.isnan(macd_hist) or np.isnan(current_close):
+                raw = self._confirmed_regime or 'ranging-up'
+            elif current_close <= 0:
+                raw = self._confirmed_regime or 'ranging-up'
+            else:
+                separation = (fast_ema - slow_ema) / current_close * 100
+                ema_bullish = separation > self.separation_pct
+                ema_bearish = separation < -self.separation_pct
+
+                if ema_bullish and macd_line > 0:
+                    raw = 'trending-up'
+                elif ema_bearish and macd_line < 0 and macd_hist < 0:
+                    raw = 'trending-down'
+                elif current_close >= slow_ema:
+                    raw = 'ranging-up'
+                else:
+                    raw = 'ranging-down'
+
+            labels[i] = self._apply_confirmation(raw)
+
+        return labels
+
     def _classify(self, candles: np.ndarray) -> str:
         fast_ema = ta.ema(candles, period=self.fast_period, sequential=True)[-1]
         slow_ema = ta.ema(candles, period=self.slow_period, sequential=True)[-1]

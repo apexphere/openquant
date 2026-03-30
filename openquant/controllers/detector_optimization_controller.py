@@ -2,8 +2,10 @@ from fastapi import APIRouter, Header, Body
 from fastapi.responses import JSONResponse
 from typing import Optional
 from pydantic import BaseModel
+from functools import lru_cache
 import os
 import re
+import json as json_lib
 
 from openquant.services import auth as authenticator
 from openquant.services.multiprocessing import process_manager
@@ -55,21 +57,20 @@ def _run_detector_optimization_task(
         start_ts = jh.date_to_timestamp(start_date)
         finish_ts = jh.date_to_timestamp(finish_date)
 
-        candles_raw = (
-            Candle.select()
+        candles = np.array(list(
+            Candle.select(
+                Candle.timestamp, Candle.open, Candle.close, Candle.high, Candle.low, Candle.volume
+            )
             .where(
                 Candle.exchange == exchange,
                 Candle.symbol == symbol,
+                Candle.timeframe == '1m',
                 Candle.timestamp >= start_ts,
                 Candle.timestamp <= finish_ts,
             )
             .order_by(Candle.timestamp)
-        )
-
-        candles = np.array([
-            [c.timestamp, c.open, c.close, c.high, c.low, c.volume]
-            for c in candles_raw
-        ])
+            .tuples()
+        ))
 
         if len(candles) == 0:
             raise ValueError(f'No candle data for {symbol} on {exchange} in {start_date} to {finish_date}')
@@ -256,6 +257,54 @@ class DetectorPreviewRequestJson(BaseModel):
     finish_date: str
 
 
+def _load_daily_candles(exchange: str, symbol: str, start_ts: int, finish_ts: int):
+    """Load daily candles by aggregating 1m data in SQL. Much faster than loading all 1m rows."""
+    from openquant.services.db import database
+    import numpy as np
+
+    warmup_ms = 150 * 24 * 60 * 60 * 1000
+    warmup_start_ts = start_ts - warmup_ms
+
+    sql = '''
+    SELECT
+        (timestamp / 86400000) * 86400000 AS day_ts,
+        (array_agg(open ORDER BY timestamp))[1] AS open,
+        (array_agg(close ORDER BY timestamp DESC))[1] AS close,
+        MAX(high) AS high,
+        MIN(low) AS low,
+        SUM(volume) AS volume
+    FROM candle
+    WHERE exchange = %s AND symbol = %s AND timeframe = %s
+      AND timestamp >= %s AND timestamp <= %s
+    GROUP BY day_ts
+    ORDER BY day_ts
+    '''
+    if database.is_closed():
+        database.open_connection()
+    cursor = database.db.execute_sql(sql, [exchange, symbol, '1m', warmup_start_ts, finish_ts])
+    rows = cursor.fetchall()
+
+    if not rows:
+        return None
+    return np.array(rows, dtype=np.float64)
+
+
+# Cache: keyed by (exchange, symbol, start_ts, finish_ts). Avoids reloading
+# 500K+ rows from DB when previewing different detector params on the same date range.
+_daily_candles_cache: dict = {}
+
+
+def _get_daily_candles_cached(exchange: str, symbol: str, start_ts: int, finish_ts: int):
+    key = (exchange, symbol, start_ts, finish_ts)
+    if key not in _daily_candles_cache:
+        # Keep cache bounded — evict oldest if >8 entries
+        if len(_daily_candles_cache) >= 8:
+            oldest_key = next(iter(_daily_candles_cache))
+            del _daily_candles_cache[oldest_key]
+        _daily_candles_cache[key] = _load_daily_candles(exchange, symbol, start_ts, finish_ts)
+    return _daily_candles_cache[key]
+
+
 @router.post("/preview")
 def preview_detector(
     request_json: DetectorPreviewRequestJson,
@@ -267,38 +316,20 @@ def preview_detector(
 
     from openquant.modes.optimize_detector_mode import (
         _resolve_detector_class,
-        _resample_to_timeframe,
+        _walk_detector,
+        _labels_to_regime_periods,
     )
-    from openquant.models.Candle import Candle
     import numpy as np
 
     start_ts = jh.date_to_timestamp(request_json.start_date)
     finish_ts = jh.date_to_timestamp(request_json.finish_date)
 
-    # Load extra candles before start_date for detector warmup (150 days)
-    warmup_ms = 150 * 24 * 60 * 60 * 1000
-    warmup_start_ts = start_ts - warmup_ms
-
-    candles_raw = (
-        Candle.select()
-        .where(
-            Candle.exchange == request_json.exchange,
-            Candle.symbol == request_json.symbol,
-            Candle.timestamp >= warmup_start_ts,
-            Candle.timestamp <= finish_ts,
-        )
-        .order_by(Candle.timestamp)
+    daily_candles = _get_daily_candles_cached(
+        request_json.exchange, request_json.symbol, start_ts, finish_ts
     )
 
-    candles_1m = np.array([
-        [c.timestamp, c.open, c.close, c.high, c.low, c.volume]
-        for c in candles_raw
-    ])
-
-    if len(candles_1m) == 0:
+    if daily_candles is None or len(daily_candles) == 0:
         return JSONResponse({'error': 'No candle data found'}, status_code=404)
-
-    daily_candles = _resample_to_timeframe(candles_1m, 1440)
 
     if len(daily_candles) < 50:
         return JSONResponse({'error': f'Need 50+ daily candles, got {len(daily_candles)}'}, status_code=400)
@@ -310,45 +341,16 @@ def preview_detector(
             visible_start_idx = idx
             break
 
-    # Run detector on ALL candles (including warmup) bar by bar
+    # Run detector — uses detect_all() (O(n)) when available
     DetectorClass = _resolve_detector_class(request_json.detector_type)
     detector = DetectorClass(**request_json.params)
-    detector.reset()
+    labels = _walk_detector(detector, daily_candles)
 
-    regime_periods = []
-    current_regime = None
-    period_start_idx = 0
-
-    for i in range(1, len(daily_candles)):
-        window = daily_candles[:i + 1]
-        try:
-            regime = detector.detect(window)
-        except (ValueError, IndexError):
-            continue
-
-        if current_regime is None:
-            current_regime = regime
-            period_start_idx = i
-
-        if regime != current_regime:
-            regime_periods.append({
-                'regime': current_regime,
-                'start': int(daily_candles[period_start_idx, 0] / 1000),
-                'end': int(daily_candles[i, 0] / 1000),
-            })
-            current_regime = regime
-            period_start_idx = i
-
-    # Close last period
-    if current_regime is not None:
-        regime_periods.append({
-            'regime': current_regime,
-            'start': int(daily_candles[period_start_idx, 0] / 1000),
-            'end': int(daily_candles[-1, 0] / 1000),
-        })
+    # Convert labels to regime periods
+    regime_periods = _labels_to_regime_periods(daily_candles, labels)
 
     # Only return candles and regimes from the visible range (after start_date)
-    visible_start_ts = int(daily_candles[visible_start_idx, 0] / 1000)
+    visible_start_ms = int(daily_candles[visible_start_idx, 0])
 
     candles_chart = []
     for row in daily_candles[visible_start_idx:]:
@@ -361,20 +363,43 @@ def preview_detector(
             'volume': round(float(row[5]), 2),
         })
 
-    # Filter/clip regime periods to visible range
+    # Filter/clip regime periods to visible range (convert ms → seconds for frontend)
     visible_regimes = []
     for rp in regime_periods:
-        if rp['end'] < visible_start_ts:
+        end_ms = rp['end_ts']
+        if end_ms < visible_start_ms:
             continue
         visible_regimes.append({
             'regime': rp['regime'],
-            'start': max(rp['start'], visible_start_ts),
-            'end': rp['end'],
+            'start': max(rp['start_ts'], visible_start_ms) // 1000,
+            'end': end_ms // 1000,
+        })
+
+    # Build detailed regime periods (with dates, prices, pct_change) for the table
+    visible_regime_details = []
+    for rp in regime_periods:
+        end_ms = rp['end_ts']
+        if end_ms < visible_start_ms:
+            continue
+        visible_regime_details.append({
+            'regime': rp['regime'],
+            'start': max(rp['start_ts'], visible_start_ms) // 1000,
+            'end': end_ms // 1000,
+            'start_ts': rp['start_ts'],
+            'end_ts': rp['end_ts'],
+            'start_date': jh.timestamp_to_date(rp['start_ts']),
+            'end_date': jh.timestamp_to_date(rp['end_ts']),
+            'days': rp.get('days', 0),
+            'start_price': rp.get('start_price', 0),
+            'end_price': rp.get('end_price', 0),
+            'high': rp.get('high', 0),
+            'low': rp.get('low', 0),
+            'pct_change': rp.get('pct_change', 0),
         })
 
     return JSONResponse({
         'candles': candles_chart,
-        'regime_periods': visible_regimes,
+        'regime_periods': visible_regime_details,
     })
 
 
@@ -396,7 +421,6 @@ def get_trial_regimes(
         return JSONResponse({'error': 'No optimization data found'}, status_code=404)
 
     import optuna
-    import json as json_lib
 
     storage = f'sqlite:///{OPTUNA_DB}'
 
@@ -445,21 +469,20 @@ def get_trial_regimes(
         start_ts = jh.date_to_timestamp('2025-06-01')
         finish_ts = jh.date_to_timestamp('2026-03-25')
 
-        candles_raw = (
-            Candle.select()
+        candles_1m = np.array(list(
+            Candle.select(
+                Candle.timestamp, Candle.open, Candle.close, Candle.high, Candle.low, Candle.volume
+            )
             .where(
                 Candle.exchange == exchange,
                 Candle.symbol == symbol,
+                Candle.timeframe == '1m',
                 Candle.timestamp >= start_ts,
                 Candle.timestamp <= finish_ts,
             )
             .order_by(Candle.timestamp)
-        )
-
-        candles_1m = np.array([
-            [c.timestamp, c.open, c.close, c.high, c.low, c.volume]
-            for c in candles_raw
-        ])
+            .tuples()
+        ))
 
         if len(candles_1m) == 0:
             return JSONResponse({'error': 'No candle data found'}, status_code=404)

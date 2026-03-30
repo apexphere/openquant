@@ -136,6 +136,43 @@ class SuperTrendDetector:
         self._pending_count = 0
         self._last_candle_timestamp = None
 
+    def detect_all(self, candles: np.ndarray) -> list:
+        """Bulk detection: precompute indicators once, classify every bar."""
+        self.reset()
+        n = len(candles)
+        labels = [None] * n
+
+        # Precompute all indicators once
+        st_result = ta.supertrend(candles, period=self.st_period, factor=self.st_factor, sequential=True)
+        st_trend_arr = st_result.trend
+        adx_arr = ta.adx(candles, period=self.adx_period, sequential=True)
+        chop_arr = ta.chop(candles, period=self.chop_period, sequential=True)
+
+        min_bars = max(self.st_period, self.adx_period, self.chop_period) * 3
+        for i in range(1, n):
+            if i < min_bars:
+                continue
+            idx = i - 1
+            current_close = candles[idx, 2]
+            st_trend = st_trend_arr[idx]
+            adx_val = adx_arr[idx]
+            chop_val = chop_arr[idx]
+
+            if np.isnan(adx_val) or np.isnan(chop_val) or np.isnan(st_trend):
+                raw = self._confirmed_regime or 'ranging-up'
+            else:
+                st_bullish = current_close > st_trend
+                is_ranging = adx_val < self.adx_threshold and chop_val > self.chop_ranging
+
+                if is_ranging:
+                    raw = 'ranging-up' if st_bullish else 'ranging-down'
+                else:
+                    raw = 'trending-up' if st_bullish else 'trending-down'
+
+            labels[i] = self._apply_confirmation(raw)
+
+        return labels
+
     def _classify(self, candles: np.ndarray) -> str:
         current_close = candles[-1, 2]
 

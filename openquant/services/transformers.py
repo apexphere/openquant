@@ -270,13 +270,14 @@ def get_live_session(session: LiveSession) -> dict:
     return jh.clean_nan_values(jh.clean_infinite_values(result))
 
 
-def get_monte_carlo_session(session: MonteCarloSession) -> dict:
+def get_monte_carlo_session(session: MonteCarloSession, prefetched_trades=None, prefetched_candles=None) -> dict:
     """
-    Transform a MonteCarloSession model instance into a dictionary for API responses (listing)
+    Transform a MonteCarloSession model instance into a dictionary for API responses (listing).
+    Accepts optional prefetched child sessions to avoid N+1 queries.
     """
-    trades_session = session.trades_session
-    candles_session = session.candles_session
-    
+    trades_session = prefetched_trades if prefetched_trades is not None else session.trades_session
+    candles_session = prefetched_candles if prefetched_candles is not None else session.candles_session
+
     return {
         'id': str(session.id),
         'status': session.status,
@@ -291,6 +292,33 @@ def get_monte_carlo_session(session: MonteCarloSession) -> dict:
         'strategy_codes': json.loads(session.strategy_codes) if session.strategy_codes else {},
         'state': session.state_json
     }
+
+
+def bulk_prefetch_monte_carlo_children(sessions: list) -> tuple:
+    """
+    Prefetch trades and candles sessions for a list of MonteCarloSessions in 2 queries
+    instead of 2*N queries.
+    Returns (trades_by_parent_id, candles_by_parent_id) dicts.
+    """
+    from openquant.models.MonteCarloSession import MonteCarloTradesSession, MonteCarloCandlesSession
+
+    session_ids = [session.id for session in sessions]
+    if not session_ids:
+        return {}, {}
+
+    trades_by_parent = {}
+    for ts in MonteCarloTradesSession.select().where(
+        MonteCarloTradesSession.monte_carlo_session_id.in_(session_ids)
+    ):
+        trades_by_parent[ts.monte_carlo_session_id] = ts
+
+    candles_by_parent = {}
+    for cs in MonteCarloCandlesSession.select().where(
+        MonteCarloCandlesSession.monte_carlo_session_id.in_(session_ids)
+    ):
+        candles_by_parent[cs.monte_carlo_session_id] = cs
+
+    return trades_by_parent, candles_by_parent
 
 
 def _percentile(arr: list, p: float) -> float:

@@ -36,7 +36,10 @@ class ClosedTrade(peewee.Model):
         from openquant.services.db import database
 
         database = database.db
-        indexes = ((('strategy_name', 'exchange', 'symbol'), False),)
+        indexes = (
+            (('strategy_name', 'exchange', 'symbol'), False),
+            (('session_id',), False),
+        )
 
     def __init__(self, attributes: dict = None, **kwargs) -> None:
         peewee.Model.__init__(self, attributes=attributes, **kwargs)

@@ -135,6 +135,70 @@ class BreakoutDetector:
         self._pending_count = 0
         self._last_candle_timestamp = None
 
+    def detect_all(self, candles: np.ndarray) -> list:
+        """Bulk detection: precompute indicators once, classify every bar."""
+        self.reset()
+        n = len(candles)
+        labels = [None] * n
+
+        # Precompute all indicators once
+        fast_ema_arr = ta.ema(candles, period=self.fast_ema, sequential=True)
+        slow_ema_arr = ta.ema(candles, period=self.slow_ema, sequential=True)
+        macd_result = ta.macd(candles, fast_period=self.macd_fast,
+                              slow_period=self.macd_slow,
+                              signal_period=self.macd_signal, sequential=True)
+        macd_line_arr = macd_result[0]
+        macd_hist_arr = macd_result[2]
+
+        min_bars = max(self.breakout_period, self.macd_slow + self.macd_signal) * 2
+        for i in range(1, n):
+            if i < min_bars:
+                continue
+            # Classify on completed bar (index i-1)
+            idx = i - 1
+            current_close = candles[idx, 2]
+
+            # Donchian high: highest high of breakout_period bars before idx
+            lookback_start = max(0, idx - self.breakout_period)
+            donchian_high = np.max(candles[lookback_start:idx, 3])
+
+            fast_ema_val = fast_ema_arr[idx]
+            slow_ema_val = slow_ema_arr[idx]
+            macd_line = macd_line_arr[idx]
+            macd_hist = macd_hist_arr[idx]
+
+            if np.isnan(slow_ema_val) or np.isnan(fast_ema_val) or np.isnan(macd_line) or np.isnan(current_close):
+                raw = self._confirmed_regime or 'ranging-up'
+            else:
+                breakout_up = current_close > donchian_high
+                separation = (fast_ema_val - slow_ema_val) / current_close * 100
+                ema_bearish = separation < -self.separation_pct
+                downtrend_entry = ema_bearish and macd_line < 0 and macd_hist < 0
+                lost_uptrend = current_close < slow_ema_val
+                lost_downtrend = current_close > slow_ema_val or macd_hist > 0
+
+                if self._confirmed_regime == 'trending-up':
+                    if lost_uptrend:
+                        raw = 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
+                    else:
+                        raw = 'trending-up'
+                elif self._confirmed_regime == 'trending-down':
+                    if lost_downtrend:
+                        raw = 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
+                    else:
+                        raw = 'trending-down'
+                else:
+                    if breakout_up:
+                        raw = 'trending-up'
+                    elif downtrend_entry:
+                        raw = 'trending-down'
+                    else:
+                        raw = 'ranging-up' if current_close >= slow_ema_val else 'ranging-down'
+
+            labels[i] = self._apply_confirmation(raw)
+
+        return labels
+
     def _classify(self, candles: np.ndarray) -> str:
         current_close = candles[-1, 2]
 

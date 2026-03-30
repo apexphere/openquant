@@ -17,43 +17,30 @@ def delete_candles_from_db(exchange: str, symbol: str) -> None:
 
 def get_existing_candles() -> List[dict]:
     """
-    Returns a list of all existing candles grouped by exchange and symbol
+    Returns a list of all existing candles grouped by exchange and symbol.
+    Uses a single aggregation query instead of 2 queries per pair.
     """
+    from peewee import fn
+
+    rows = (
+        Candle.select(
+            Candle.exchange,
+            Candle.symbol,
+            fn.MIN(Candle.timestamp).alias('min_ts'),
+            fn.MAX(Candle.timestamp).alias('max_ts'),
+        )
+        .group_by(Candle.exchange, Candle.symbol)
+        .tuples()
+    )
+
     results = []
-    
-    # Get unique exchange-symbol combinations
-    pairs = Candle.select(
-        Candle.exchange, 
-        Candle.symbol
-    ).distinct().tuples()
-
-    for exchange, symbol in pairs:
-        # Get first and last candle for this pair
-        first = Candle.select(
-            Candle.timestamp
-        ).where(
-            Candle.exchange == exchange,
-            Candle.symbol == symbol
-        ).order_by(
-            Candle.timestamp.asc()
-        ).first()
-
-        last = Candle.select(
-            Candle.timestamp
-        ).where(
-            Candle.exchange == exchange,
-            Candle.symbol == symbol
-        ).order_by(
-            Candle.timestamp.desc()
-        ).first()
-
-        if first and last:
-            results.append({
-                'exchange': exchange,
-                'symbol': symbol,
-                'start_date': arrow.get(first.timestamp / 1000).format('YYYY-MM-DD'),
-                'end_date': arrow.get(last.timestamp / 1000).format('YYYY-MM-DD')
-            })
+    for exchange, symbol, min_ts, max_ts in rows:
+        results.append({
+            'exchange': exchange,
+            'symbol': symbol,
+            'start_date': arrow.get(min_ts / 1000).format('YYYY-MM-DD'),
+            'end_date': arrow.get(max_ts / 1000).format('YYYY-MM-DD'),
+        })
 
     return results
 
