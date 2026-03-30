@@ -43,6 +43,7 @@ Usage:
     regime = detector.detect(daily_candles)
 """
 import numpy as np
+import openquant.indicators as ta
 
 
 REGIMES = frozenset({
@@ -102,26 +103,17 @@ class StructureDetector:
         self._last_candle_timestamp = None
 
     def _find_swing_points(self, candles: np.ndarray):
-        """Find swing highs and swing lows.
+        """Find swing highs and swing lows using ta.minmax (scipy argrelextrema)."""
+        extrema = ta.minmax(candles, order=self.swing_period, sequential=True)
 
-        A swing high at bar i: high[i] > max(high[i-n:i]) and high[i] > max(high[i+1:i+n+1])
-        A swing low at bar i: low[i] < min(low[i-n:i]) and low[i] < min(low[i+1:i+n+1])
-        """
-        n = self.swing_period
-        highs = candles[:, 3]
-        lows = candles[:, 4]
+        swing_highs = []
+        swing_lows = []
 
-        swing_highs = []  # (index, price)
-        swing_lows = []   # (index, price)
-
-        for i in range(n, len(candles) - n):
-            # Swing high
-            if highs[i] == np.max(highs[i - n:i + n + 1]):
-                swing_highs.append((i, highs[i]))
-
-            # Swing low
-            if lows[i] == np.min(lows[i - n:i + n + 1]):
-                swing_lows.append((i, lows[i]))
+        for i in range(len(candles)):
+            if not np.isnan(extrema.is_max[i]):
+                swing_highs.append((i, extrema.is_max[i]))
+            if not np.isnan(extrema.is_min[i]):
+                swing_lows.append((i, extrema.is_min[i]))
 
         return swing_highs, swing_lows
 
