@@ -31,11 +31,13 @@ class BBMeanReversionBehavior:
     def should_long(self, strategy) -> bool:
         if _in_cooldown(strategy):
             return False
+        # Only long in ranging-up — don't catch falling knives in ranging-down
+        regime = getattr(strategy, '_current_regime', None)
+        if regime == 'ranging-down':
+            return False
         bb = _get_bb(strategy)
-        # Price at or below lower band
         if strategy.price > bb[2]:
             return False
-        # RSI confirms oversold
         rsi = ta.rsi(strategy.candles, period=strategy.hp.get('rsi_period', 14))
         if rsi > strategy.hp.get('rsi_oversold', 35):
             return False
@@ -44,11 +46,13 @@ class BBMeanReversionBehavior:
     def should_short(self, strategy) -> bool:
         if _in_cooldown(strategy):
             return False
+        # Only short in ranging-down — don't short rallies in ranging-up
+        regime = getattr(strategy, '_current_regime', None)
+        if regime == 'ranging-up':
+            return False
         bb = _get_bb(strategy)
-        # Price at or above upper band
         if strategy.price < bb[1]:
             return False
-        # RSI confirms overbought
         rsi = ta.rsi(strategy.candles, period=strategy.hp.get('rsi_period', 14))
         if rsi < strategy.hp.get('rsi_overbought', 65):
             return False
