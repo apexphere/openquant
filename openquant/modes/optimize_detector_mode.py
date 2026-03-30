@@ -336,11 +336,44 @@ def _directional_accuracy(candles: np.ndarray, labels: list) -> float:
     return correct / total if total > 0 else 0.5
 
 
-def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
-    """Score = does the labeled regime match reality?
+def _build_ground_truth(candles: np.ndarray, window: int = 20, trend_threshold: float = 10.0) -> list:
+    """Build ground truth regime labels using centered window.
 
-    For each regime period, check if the label matched actual price behavior.
-    That's it. No proxy metrics, no synthetic strategies.
+    For each bar, look back AND forward to determine the true regime.
+    This is the 'god mode' view — what regime it actually was.
+    """
+    closes = candles[:, 2]
+    labels = []
+
+    for i in range(len(candles)):
+        look_back = max(0, i - window)
+        look_fwd = min(len(closes) - 1, i + window)
+
+        past_ret = (closes[i] - closes[look_back]) / closes[look_back] * 100
+        future_ret = (closes[look_fwd] - closes[i]) / closes[i] * 100
+
+        avg_direction = (past_ret + future_ret) / 2
+        total_move = abs(past_ret) + abs(future_ret)
+
+        if avg_direction > 0 and total_move > trend_threshold:
+            labels.append('trending-up')
+        elif avg_direction < 0 and total_move > trend_threshold:
+            labels.append('trending-down')
+        elif avg_direction > 0:
+            labels.append('ranging-up')
+        else:
+            labels.append('ranging-down')
+
+    return labels
+
+
+def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
+    """Score by comparing detector labels to ground truth.
+
+    Ground truth uses a centered window — looks back AND forward to
+    determine what the regime actually was. The detector only looks
+    back (real-time). Score = how close the detector gets to the
+    god-mode hindsight view, weighted by move magnitude.
 
     Returns (score, regime_periods).
     """
@@ -358,29 +391,32 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     if len(regime_periods) < 2:
         return -1.0, regime_periods
 
-    # Must have both bullish and bearish periods — one-directional detectors
-    # are not detecting anything, just reflecting the overall trend.
-    has_bullish = any(rp['regime'] in ('trending-up', 'ranging-up') for rp in regime_periods)
-    has_bearish = any(rp['regime'] in ('trending-down', 'ranging-down') for rp in regime_periods)
-    if not (has_bullish and has_bearish):
-        return -1.0, regime_periods
+    # Build ground truth
+    truth = _build_ground_truth(candles)
 
-    # Score each regime period: did the label match what price actually did?
-    # Weight by the size of the move — getting big moves right matters more.
+    # Score: for each bar, does the detector agree with ground truth?
+    # Weight by daily return magnitude — getting big-move days right matters more.
     total_weight = 0.0
     total_score = 0.0
 
-    for rp in regime_periods:
-        pct = rp['pct_change']
-        weight = abs(pct)
-        if weight < 0.1:
+    for i in range(1, len(candles)):
+        if labels[i] is None:
             continue
 
-        is_bullish = rp['regime'] in ('trending-up', 'ranging-up')
-        correct = (is_bullish and pct > 0) or (not is_bullish and pct < 0)
+        daily_return = abs(candles[i, 2] - candles[i-1, 2])
+        if daily_return < 0.01:
+            continue
 
-        total_weight += weight
-        total_score += weight if correct else -weight
+        total_weight += daily_return
+
+        detector_bullish = labels[i] in _BULLISH_LABELS
+        truth_bullish = truth[i] in _BULLISH_LABELS
+
+        # Direction match: both bullish or both bearish
+        if detector_bullish == truth_bullish:
+            total_score += daily_return
+        else:
+            total_score -= daily_return
 
     score = total_score / total_weight if total_weight > 0 else 0.0
 
