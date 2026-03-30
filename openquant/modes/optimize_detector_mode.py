@@ -34,6 +34,7 @@ _DETECTOR_REGISTRY = {
     'breakout_v3': 'openquant.regime.breakout_detector.BreakoutDetector',
     'momentum_v4': 'openquant.regime.momentum_detector.MomentumDetector',
     'supertrend_v5': 'openquant.regime.supertrend_detector.SuperTrendDetector',
+    'structure_v6': 'openquant.regime.structure_detector.StructureDetector',
     'volatility': 'openquant.regime.volatility_detector.VolatilityRegimeDetector',
     'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
 }
