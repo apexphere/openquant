@@ -546,12 +546,16 @@ def optimize_detector(detector_type, start, finish, exchange, symbol, trials) ->
         start_ts = jh.date_to_timestamp(start)
         finish_ts = jh.date_to_timestamp(finish)
 
+        # Load 150 days of warmup candles before start date
+        warmup_ms = 150 * 24 * 60 * 60 * 1000
+        warmup_start_ts = start_ts - warmup_ms
+
         candles_raw = (
             Candle.select()
             .where(
                 Candle.exchange == exchange,
                 Candle.symbol == symbol,
-                Candle.timestamp >= start_ts,
+                Candle.timestamp >= warmup_start_ts,
                 Candle.timestamp <= finish_ts,
             )
             .order_by(Candle.timestamp)
@@ -567,7 +571,7 @@ def optimize_detector(detector_type, start, finish, exchange, symbol, trials) ->
             click.echo(f'Run: jesse import-candles {exchange} {symbol} {start}')
             sys.exit(1)
 
-        click.echo(f'Loaded {len(candles):,} 1-minute candles')
+        click.echo(f'Loaded {len(candles):,} candles (incl. warmup)')
         click.echo(f'Running {trials} trials...')
         click.echo()
 
@@ -575,6 +579,7 @@ def optimize_detector(detector_type, start, finish, exchange, symbol, trials) ->
             detector_type=detector_type,
             candles=candles,
             n_trials=trials,
+            visible_start_ts=start_ts,
         )
 
         # Display results

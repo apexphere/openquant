@@ -67,10 +67,11 @@ def _resample_to_timeframe(candles_1m: np.ndarray, timeframe_minutes: int) -> np
     return result
 
 
-def _walk_detector(detector, candles: np.ndarray):
+def _walk_detector(detector, candles: np.ndarray, visible_start_idx: int = 0):
     """Walk a detector bar-by-bar and return per-bar regime labels.
 
-    Returns array of regime strings aligned with candles (warmup bars = None).
+    Feeds ALL candles to the detector (for warmup), but only returns
+    labels from visible_start_idx onwards. Earlier bars get None.
     """
     detector.reset()
     labels = [None] * len(candles)
@@ -78,7 +79,9 @@ def _walk_detector(detector, candles: np.ndarray):
     for i in range(1, len(candles)):
         window = candles[:i + 1]
         try:
-            labels[i] = detector.detect(window)
+            regime = detector.detect(window)
+            if i >= visible_start_idx:
+                labels[i] = regime
         except (ValueError, IndexError):
             continue
 
@@ -367,7 +370,7 @@ def _build_ground_truth(candles: np.ndarray, window: int = 20, trend_threshold: 
     return labels
 
 
-def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
+def score_detector(detector, candles: np.ndarray, visible_start_idx: int = 0) -> tuple[float, list]:
     """Score by comparing detector labels to ground truth.
 
     Ground truth uses a centered window — looks back AND forward to
@@ -380,26 +383,29 @@ def score_detector(detector, candles: np.ndarray) -> tuple[float, list]:
     if len(candles) < 100:
         return -1.0, []
 
-    labels = _walk_detector(detector, candles)
+    labels = _walk_detector(detector, candles, visible_start_idx)
 
-    labeled_count = sum(1 for l in labels if l is not None)
+    labeled_count = sum(1 for l in labels[visible_start_idx:] if l is not None)
     if labeled_count < 50:
         return -1.0, []
 
-    regime_periods = _labels_to_regime_periods(candles, labels)
+    # Only build regime periods from visible range
+    visible_labels = [None] * visible_start_idx + labels[visible_start_idx:]
+    regime_periods = _labels_to_regime_periods(candles, visible_labels)
 
     if len(regime_periods) < 2:
         return -1.0, regime_periods
 
-    # Build ground truth
+    # Build ground truth for visible range
     truth = _build_ground_truth(candles)
 
-    # Score: for each bar, does the detector agree with ground truth?
+    # Score: for each visible bar, does the detector agree with ground truth?
     # Weight by daily return magnitude — getting big-move days right matters more.
     total_weight = 0.0
     total_score = 0.0
 
-    for i in range(1, len(candles)):
+    start = max(visible_start_idx, 1)
+    for i in range(start, len(candles)):
         if labels[i] is None:
             continue
 
@@ -485,16 +491,28 @@ def run_detector_optimization(
     timeframe_minutes: int = 240,  # 4h — more bars = better param differentiation
     n_trials: int = 200,
     session_id: str = None,
+    visible_start_ts: int = None,
 ) -> dict:
     """Run Optuna optimization for detector parameters.
+
+    visible_start_ts: only score bars at or after this timestamp.
+    Earlier bars are used for detector warmup only.
 
     Returns dict with best_params, best_score, and all_trials.
     """
     # Resample to detector timeframe
     daily_candles = _resample_to_timeframe(candles, timeframe_minutes)
 
-    if len(daily_candles) < 200:
-        raise ValueError(f'Need at least 200 candles, got {len(daily_candles)}')
+    if len(daily_candles) < 100:
+        raise ValueError(f'Need at least 100 candles, got {len(daily_candles)}')
+
+    # Find visible start index
+    visible_start_idx = 0
+    if visible_start_ts is not None:
+        for idx in range(len(daily_candles)):
+            if daily_candles[idx, 0] >= visible_start_ts:
+                visible_start_idx = idx
+                break
 
     DetectorClass = _resolve_detector_class(detector_type)
     param_ranges = _get_detector_param_ranges(detector_type)
@@ -524,9 +542,9 @@ def run_detector_optimization(
             if params['macd_fast'] >= params['macd_slow']:
                 return -1.0
 
-        # Score on full period
+        # Score on visible period (warmup candles used for detector init only)
         detector = DetectorClass(**params)
-        score, regime_periods = score_detector(detector, daily_candles)
+        score, regime_periods = score_detector(detector, daily_candles, visible_start_idx)
 
         # Store regime periods only for decent trials (avoid SQLite overflow)
         import json
