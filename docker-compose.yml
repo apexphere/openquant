@@ -39,8 +39,19 @@ services:
     volumes:
       - ./strategies:/jesse-docker/strategies
       - ./storage:/jesse-docker/storage
+      - ./openquant:/jesse-docker/openquant
     working_dir: /jesse-docker
     command: jesse run
+
+  dashboard:
+    build:
+      context: ./dashboard
+      args:
+        NEXT_PUBLIC_OPENQUANT_TOKEN: ${OPENQUANT_TOKEN:-a66843f73871f17e650bea3d307d10daa467ad0c00ff21185ec2fa032472762c}
+    depends_on:
+      - openquant
+    ports:
+      - "3000:3000"
 
 volumes:
   pgdata:

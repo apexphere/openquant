@@ -221,6 +221,74 @@ export async function fetchTrialRegimes(
   );
 }
 
+export async function fetchDetectorPreviewHistory(): Promise<
+  Array<{
+    id: string;
+    timestamp: string;
+    detector_type: string;
+    params: Record<string, number>;
+    exchange: string;
+    symbol: string;
+    start_date: string;
+    finish_date: string;
+  }>
+> {
+  const data = await apiFetch<{
+    history: Array<{
+      id: string;
+      timestamp: string;
+      detector_type: string;
+      params: Record<string, number>;
+      exchange: string;
+      symbol: string;
+      start_date: string;
+      finish_date: string;
+    }>;
+  }>("/detector-optimization/preview/history", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return data.history ?? [];
+}
+
+export async function removeDetectorPreviewHistoryEntry(
+  id: string
+): Promise<{ message: string }> {
+  return apiFetch(`/detector-optimization/preview/history/${encodeURIComponent(id)}/remove`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function fetchDetectorPreviewHistoryDetails(
+  id: string
+): Promise<{
+  entry: Record<string, unknown>;
+  regime_periods: Array<{
+    regime: string;
+    start_date: string;
+    end_date: string;
+    days: number;
+    start_price: number;
+    end_price: number;
+    high: number;
+    low: number;
+    pct_change: number;
+  }>;
+}> {
+  return apiFetch(`/detector-optimization/preview/history/${encodeURIComponent(id)}/details`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function clearDetectorPreviewHistory(): Promise<{ message: string }> {
+  return apiFetch("/detector-optimization/preview/history/clear", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export async function fetchSystemInfo(): Promise<{
   has_live: boolean;
   is_initiated: boolean;

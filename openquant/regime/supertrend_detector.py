@@ -8,11 +8,13 @@ Detection logic:
         SuperTrend bullish (price > ST line)
         + ADX > adx_threshold (trend has strength)
         + CHOP < chop_trending (market is directional, not choppy)
+        + close > SMA(trend_sma_period) (macro trend filter)
 
     TRENDING-DOWN:
         SuperTrend bearish (price < ST line)
         + ADX > adx_threshold
         + CHOP < chop_trending
+        + close < SMA(trend_sma_period) (macro trend filter)
 
     RANGING:
         ADX < adx_threshold OR CHOP > chop_ranging (no trend strength or choppy)
@@ -23,15 +25,23 @@ Detection logic:
         ADX drops below threshold = exit to ranging
         CHOP rises above ranging threshold = exit to ranging
 
+    MACRO TREND FILTER (SMA):
+        Prevents trending-up when price is structurally below SMA
+        (e.g., bear bounce in a sustained downtrend → downgrades to ranging-up).
+        Prevents trending-down when price is structurally above SMA
+        (e.g., bull dip in a sustained uptrend → downgrades to ranging-down).
+        Controlled by use_trend_filter (default True) and trend_sma_period (default 50).
+
 Why better than EMA-based detectors:
     - SuperTrend adapts to volatility via ATR (widens in vol, tightens in calm)
     - Flips in 1-3 bars vs EMA crossover taking 5-10 bars
     - CHOP filter prevents trading during choppy conditions
     - No MACD dependency (MACD is EMA of EMA — inherently lagging)
+    - SMA macro filter prevents false regime flips during counter-trend bounces
 
 Regimes:
-    trending-up    — SuperTrend bullish + ADX confirms + not choppy
-    trending-down  — SuperTrend bearish + ADX confirms + not choppy
+    trending-up    — SuperTrend bullish + ADX confirms + not choppy + price > SMA
+    trending-down  — SuperTrend bearish + ADX confirms + not choppy + price < SMA
     ranging-up     — weak trend or choppy + SuperTrend bullish
     ranging-down   — weak trend or choppy + SuperTrend bearish
 
@@ -49,6 +59,26 @@ REGIMES = frozenset({
     'ranging-up',
     'ranging-down',
 })
+
+
+def _apply_sma_filter(raw_regime: str, close: float, sma_val: float) -> str:
+    """Downgrade trending regimes when price disagrees with slow SMA.
+
+    The SMA determines the macro direction. When a trend is downgraded,
+    the ranging direction follows the SMA position (macro trend), not
+    the local SuperTrend direction:
+
+    - trending-up + close < SMA → ranging-down (structurally bearish)
+    - trending-down + close > SMA → ranging-up (structurally bullish)
+    - NaN SMA → no filter applied (insufficient data)
+    """
+    if np.isnan(sma_val):
+        return raw_regime
+    if raw_regime == 'trending-up' and close < sma_val:
+        return 'ranging-down'
+    if raw_regime == 'trending-down' and close > sma_val:
+        return 'ranging-up'
+    return raw_regime
 
 
 class SuperTrendDetector:
@@ -74,6 +104,10 @@ class SuperTrendDetector:
         Bars a new regime must hold before confirming. Default 1.
     timeframe : str
         Candle timeframe. Default '1D'.
+    trend_sma_period : int
+        Slow SMA period for macro trend filter. Default 100.
+    use_trend_filter : bool
+        Enable SMA macro trend filter. Default True.
     """
 
     def __init__(
@@ -90,6 +124,8 @@ class SuperTrendDetector:
         bear_entry_bars: int = 2,
         bear_exit_bars: int = 5,
         timeframe: str = '1D',
+        trend_sma_period: int = 100,
+        use_trend_filter: bool = True,
     ) -> None:
         self.st_period = st_period
         self.st_factor = st_factor
@@ -103,6 +139,8 @@ class SuperTrendDetector:
         self.bear_entry_bars = bear_entry_bars
         self.bear_exit_bars = bear_exit_bars
         self.timeframe = timeframe
+        self.trend_sma_period = trend_sma_period
+        self.use_trend_filter = use_trend_filter
 
         self._confirmed_regime = None
         self._pending_regime: str | None = None
@@ -147,6 +185,10 @@ class SuperTrendDetector:
         st_trend_arr = st_result.trend
         adx_arr = ta.adx(candles, period=self.adx_period, sequential=True)
         chop_arr = ta.chop(candles, period=self.chop_period, sequential=True)
+        sma_arr = (
+            ta.sma(candles, period=self.trend_sma_period, sequential=True)
+            if self.use_trend_filter else None
+        )
 
         min_bars = max(self.st_period, self.adx_period, self.chop_period) * 3
         for i in range(1, n):
@@ -168,6 +210,8 @@ class SuperTrendDetector:
                     raw = 'ranging-up' if st_bullish else 'ranging-down'
                 else:
                     raw = 'trending-up' if st_bullish else 'trending-down'
+                    if sma_arr is not None:
+                        raw = _apply_sma_filter(raw, current_close, sma_arr[idx])
 
             labels[i] = self._apply_confirmation(raw)
 
@@ -199,8 +243,16 @@ class SuperTrendDetector:
 
         if is_ranging:
             return 'ranging-up' if st_bullish else 'ranging-down'
-        else:
-            return 'trending-up' if st_bullish else 'trending-down'
+
+        raw = 'trending-up' if st_bullish else 'trending-down'
+
+        # SMA macro trend filter — prevent false regime flips during
+        # counter-trend bounces (e.g., bear bounce → false trending-up)
+        if self.use_trend_filter:
+            sma_val = ta.sma(candles, period=self.trend_sma_period)
+            raw = _apply_sma_filter(raw, current_close, sma_val)
+
+        return raw
 
     def _apply_confirmation(self, raw_regime: str) -> str:
         """Directional asymmetric confirmation.

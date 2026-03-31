@@ -3,6 +3,7 @@ import time
 import uuid
 import json
 import sys
+from datetime import datetime
 
 import click
 from importlib.metadata import version as get_version
@@ -702,6 +703,115 @@ def detector_results(study_name, trial) -> None:
         click.echo(f'{t.number:>7} {t.value:>8.4f}  {params_str}')
 
 
+@cli.command('detector-preview')
+@click.argument('detector_type')
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--finish', required=True, help='Finish date (YYYY-MM-DD)')
+@click.option('--exchange', default='Bybit USDT Perpetual')
+@click.option('--symbol', default='BTC-USDT')
+@click.option('--params', 'extra_params', default=None,
+              help='Override params as JSON string, e.g. \'{"trend_sma_period": 100}\'')
+@click.option('--json-output', is_flag=True, help='Output raw JSON')
+def detector_preview(detector_type, start, finish, exchange, symbol,
+                     extra_params, json_output) -> None:
+    """Run a detector preview and show regime periods.
+
+    Requires the server to be running (jesse run).
+
+    Examples:
+
+        jesse detector-preview supertrend_v5 --start 2025-01-25 --finish 2026-03-29
+
+        jesse detector-preview supertrend_v5 --start 2025-01-25 --finish 2026-03-29 \\
+          --params '{"trend_sma_period": 50}'
+
+        jesse detector-preview supertrend_v5 --start 2025-06-01 --finish 2026-03-25 --json-output
+    """
+    import requests
+
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    params = {}
+    if extra_params:
+        try:
+            params = json.loads(extra_params)
+        except json.JSONDecodeError as e:
+            click.echo(f'Error parsing --params JSON: {e}')
+            sys.exit(1)
+
+    payload = {
+        'detector_type': detector_type,
+        'params': params,
+        'exchange': exchange,
+        'symbol': symbol,
+        'start_date': start,
+        'finish_date': finish,
+    }
+
+    click.echo(f'Running {detector_type} on {symbol} ({start} → {finish})...')
+
+    try:
+        resp = requests.post(
+            f'{server_url}/detector-optimization/preview',
+            json=payload, headers={'Authorization': token}, timeout=120)
+        data = json.loads(resp.text)
+    except requests.ConnectionError:
+        click.echo('Error: Server not running. Start with: jesse run')
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f'Error: {e}')
+        sys.exit(1)
+
+    if 'error' in data:
+        click.echo(f'Error: {data["error"]}')
+        sys.exit(1)
+
+    periods = data.get('regime_periods', [])
+
+    if json_output:
+        click.echo(json.dumps(periods, indent=2))
+        return
+
+    if not periods:
+        click.echo('No regime periods returned.')
+        return
+
+    # Table header
+    click.echo()
+    click.echo(f'{"Regime":<18} {"Period":<28} {"Days":>5} '
+               f'{"Start":>11} {"End":>11} {"Change":>8}')
+    click.echo('-' * 90)
+
+    for rp in periods:
+        regime = rp.get('regime', '?')
+        start_d = rp.get('start_date', '?')
+        end_d = rp.get('end_date', '?')
+        days = rp.get('days', 0)
+        sp = rp.get('start_price', 0)
+        ep = rp.get('end_price', 0)
+        pct = rp.get('pct_change', 0)
+
+        # Color regime labels
+        if 'trending-up' in regime:
+            regime_str = click.style(f'{regime:<18}', fg='green')
+        elif 'trending-down' in regime:
+            regime_str = click.style(f'{regime:<18}', fg='red')
+        elif 'ranging-up' in regime:
+            regime_str = click.style(f'{regime:<18}', fg='bright_green')
+        else:
+            regime_str = click.style(f'{regime:<18}', fg='bright_red')
+
+        pct_color = 'green' if pct >= 0 else 'red'
+        pct_str = click.style(f'{pct:+.1f}%', fg=pct_color)
+
+        click.echo(f'{regime_str} {start_d} → {end_d:<10} {days:>5}d '
+                   f'${sp:>10,.0f} ${ep:>10,.0f} {pct_str}')
+
+    click.echo()
+    click.echo(f'{len(periods)} regime periods total.')
+
+
 @cli.command('resume-optimize')
 @click.argument('session_id')
 def resume_optimize(session_id) -> None:
@@ -1271,6 +1381,124 @@ def install_live(strict: bool) -> None:
     from openquant.services.installer import install
 
     install(is_live_plugin_already_installed=jh.has_live_trade_plugin(), strict=strict)
+
+
+# ── Versioning commands ────────────────────────────────────────────
+
+@cli.command()
+@click.argument('component_type', type=click.Choice(['detector', 'behavior', 'strategy']))
+@click.argument('name')
+@click.option('--name', 'tag', required=True, help='Version tag (e.g., stable, experiment1)')
+@click.option('--description', '-d', default='', help='Optional description')
+def snapshot(component_type, name, tag, description) -> None:
+    """Snapshot a detector, behavior, or strategy.
+
+    Examples:
+        jesse snapshot detector supertrend_v5 --name stable
+        jesse snapshot behavior bb_mean_reversion --name stable
+        jesse snapshot strategy RegimeRouterV3 --name stable
+    """
+    from openquant.versioning import snapshot_component, snapshot_strategy
+
+    try:
+        if component_type == 'strategy':
+            path = snapshot_strategy(name, tag, description)
+        else:
+            path = snapshot_component(component_type, name, tag, description)
+        click.echo(f'Snapshot saved: {name} -> {tag}')
+        click.echo(f'  Path: {path}')
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f'Error: {e}', err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('component_type', type=click.Choice(['detector', 'behavior', 'strategy']))
+@click.argument('name')
+def versions(component_type, name) -> None:
+    """List all versioned snapshots for a component.
+
+    Examples:
+        jesse versions detector supertrend_v5
+        jesse versions behavior bb_mean_reversion
+        jesse versions strategy RegimeRouterV3
+    """
+    from openquant.versioning import list_versions
+
+    entries = list_versions(component_type, name)
+    if not entries:
+        click.echo(f'No versions found for {component_type} "{name}"')
+        return
+
+    click.echo(f'Versions of {component_type} "{name}":')
+    click.echo('')
+    for entry in entries:
+        tag = entry.get('tag', '?')
+        ts = entry.get('timestamp', '')
+        desc = entry.get('description', '')
+        # Format timestamp for display
+        if ts:
+            try:
+                dt = datetime.fromisoformat(ts)
+                ts_display = dt.strftime('%Y-%m-%d %H:%M')
+            except Exception:
+                ts_display = ts
+        else:
+            ts_display = ''
+        line = f'  {tag:<20s} {ts_display}'
+        if desc:
+            line += f'  — {desc}'
+        click.echo(line)
+
+
+@cli.command()
+@click.argument('component_type', type=click.Choice(['detector', 'behavior', 'strategy']))
+@click.argument('name')
+@click.option('--from', 'tag', required=True, help='Version tag to restore from')
+def restore(component_type, name, tag) -> None:
+    """Restore a versioned snapshot back to the main file.
+
+    Examples:
+        jesse restore detector supertrend_v5 --from stable
+        jesse restore strategy RegimeRouterV3 --from stable
+    """
+    from openquant.versioning import restore_component, restore_strategy
+
+    try:
+        if component_type == 'strategy':
+            path = restore_strategy(name, tag)
+        else:
+            path = restore_component(component_type, name, tag)
+        click.echo(f'Restored {component_type} "{name}" from version "{tag}"')
+        click.echo(f'  Path: {path}')
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f'Error: {e}', err=True)
+        sys.exit(1)
+
+
+@cli.command('diff')
+@click.argument('component_type', type=click.Choice(['detector', 'behavior', 'strategy']))
+@click.argument('name')
+@click.argument('tag_a')
+@click.argument('tag_b')
+def diff_cmd(component_type, name, tag_a, tag_b) -> None:
+    """Show diff between two versioned snapshots.
+
+    Examples:
+        jesse diff detector supertrend_v5 stable experiment1
+        jesse diff strategy RegimeRouterV3 stable experiment1
+    """
+    from openquant.versioning import diff_versions
+
+    try:
+        result = diff_versions(component_type, name, tag_a, tag_b)
+        if result:
+            click.echo(result)
+        else:
+            click.echo('No differences found.')
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f'Error: {e}', err=True)
+        sys.exit(1)
 
 
 @cli.command()

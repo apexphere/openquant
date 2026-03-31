@@ -6,6 +6,8 @@ from functools import lru_cache
 import os
 import re
 import json as json_lib
+import uuid
+from datetime import datetime, timezone
 
 from openquant.services import auth as authenticator
 from openquant.services.multiprocessing import process_manager
@@ -15,6 +17,8 @@ from openquant import helpers as jh
 router = APIRouter(prefix="/detector-optimization", tags=["Detector Optimization"])
 
 OPTUNA_DB = './storage/temp/optuna/detector_optuna.db'
+PREVIEW_HISTORY_FILE = './storage/json/detector_preview_history.json'
+MAX_PREVIEW_HISTORY = 50
 
 # UUID pattern at the end of study names: {detector_type}_{uuid}
 _UUID_PATTERN = re.compile(r'^(.+)_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$')
@@ -248,6 +252,66 @@ def remove_detector_optimization_session(
     return JSONResponse({'message': f'Study {study_name} removed'})
 
 
+def _load_preview_history() -> list:
+    """Load preview history from JSON file."""
+    if not os.path.exists(PREVIEW_HISTORY_FILE):
+        return []
+    try:
+        with open(PREVIEW_HISTORY_FILE, 'r') as f:
+            entries = json_lib.load(f)
+        return entries if isinstance(entries, list) else []
+    except (json_lib.JSONDecodeError, IOError):
+        return []
+
+
+def _save_preview_history(entries: list) -> None:
+    """Save preview history to JSON file."""
+    os.makedirs(os.path.dirname(PREVIEW_HISTORY_FILE), exist_ok=True)
+    with open(PREVIEW_HISTORY_FILE, 'w') as f:
+        json_lib.dump(entries, f, indent=2)
+
+
+def _is_duplicate_entry(a: dict, b: dict) -> bool:
+    """Check if two history entries are identical (ignoring id/timestamp)."""
+    return (
+        a.get('detector_type') == b.get('detector_type')
+        and a.get('params') == b.get('params')
+        and a.get('symbol') == b.get('symbol')
+        and a.get('start_date') == b.get('start_date')
+        and a.get('finish_date') == b.get('finish_date')
+    )
+
+
+def _add_preview_history_entry(
+    detector_type: str,
+    params: dict,
+    exchange: str,
+    symbol: str,
+    start_date: str,
+    finish_date: str,
+) -> None:
+    """Add a preview run to history. Dedupes against the last entry, caps at MAX_PREVIEW_HISTORY."""
+    entries = _load_preview_history()
+
+    new_entry = {
+        'id': str(uuid.uuid4()),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'detector_type': detector_type,
+        'params': params,
+        'exchange': exchange,
+        'symbol': symbol,
+        'start_date': start_date,
+        'finish_date': finish_date,
+    }
+
+    # Dedupe: skip if identical to the most recent entry
+    if entries and _is_duplicate_entry(entries[0], new_entry):
+        return
+
+    entries = [new_entry, *entries][:MAX_PREVIEW_HISTORY]
+    _save_preview_history(entries)
+
+
 class DetectorPreviewRequestJson(BaseModel):
     detector_type: str
     params: dict
@@ -397,10 +461,126 @@ def preview_detector(
             'pct_change': rp.get('pct_change', 0),
         })
 
+    # Auto-save to preview history on success
+    _add_preview_history_entry(
+        detector_type=request_json.detector_type,
+        params=request_json.params,
+        exchange=request_json.exchange,
+        symbol=request_json.symbol,
+        start_date=request_json.start_date,
+        finish_date=request_json.finish_date,
+    )
+
     return JSONResponse({
         'candles': candles_chart,
         'regime_periods': visible_regime_details,
     })
+
+
+@router.post("/preview/history")
+def get_preview_history(
+    authorization: Optional[str] = Header(None),
+):
+    """Return detector preview history (newest first)."""
+    if not authenticator.is_valid_token(authorization):
+        return authenticator.unauthorized_response()
+
+    return JSONResponse({'history': _load_preview_history()})
+
+
+@router.post("/preview/history/clear")
+def clear_preview_history(
+    authorization: Optional[str] = Header(None),
+):
+    """Clear all preview history."""
+    if not authenticator.is_valid_token(authorization):
+        return authenticator.unauthorized_response()
+
+    _save_preview_history([])
+    return JSONResponse({'message': 'History cleared'})
+
+
+@router.post("/preview/history/{entry_id}/details")
+def get_preview_history_details(
+    entry_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Re-run a history entry's detector and return full regime periods."""
+    if not authenticator.is_valid_token(authorization):
+        return authenticator.unauthorized_response()
+
+    from openquant.modes.optimize_detector_mode import (
+        _resolve_detector_class,
+        _walk_detector,
+        _labels_to_regime_periods,
+    )
+
+    entries = _load_preview_history()
+    entry = next((e for e in entries if e.get('id') == entry_id), None)
+    if entry is None:
+        return JSONResponse({'error': 'Entry not found'}, status_code=404)
+
+    start_ts = jh.date_to_timestamp(entry['start_date'])
+    finish_ts = jh.date_to_timestamp(entry['finish_date'])
+
+    daily_candles = _get_daily_candles_cached(
+        entry.get('exchange', 'Bybit USDT Perpetual'), entry['symbol'], start_ts, finish_ts
+    )
+
+    if daily_candles is None or len(daily_candles) < 50:
+        return JSONResponse({'error': 'Insufficient candle data'}, status_code=400)
+
+    DetectorClass = _resolve_detector_class(entry['detector_type'])
+    detector = DetectorClass(**entry['params'])
+    labels = _walk_detector(detector, daily_candles)
+    regime_periods = _labels_to_regime_periods(daily_candles, labels)
+
+    visible_start_idx = 0
+    for idx in range(len(daily_candles)):
+        if daily_candles[idx, 0] >= start_ts:
+            visible_start_idx = idx
+            break
+    visible_start_ms = int(daily_candles[visible_start_idx, 0])
+
+    visible_regime_details = []
+    for rp in regime_periods:
+        if rp['end_ts'] < visible_start_ms:
+            continue
+        visible_regime_details.append({
+            'regime': rp['regime'],
+            'start_date': jh.timestamp_to_date(rp['start_ts']),
+            'end_date': jh.timestamp_to_date(rp['end_ts']),
+            'days': rp.get('days', 0),
+            'start_price': rp.get('start_price', 0),
+            'end_price': rp.get('end_price', 0),
+            'high': rp.get('high', 0),
+            'low': rp.get('low', 0),
+            'pct_change': rp.get('pct_change', 0),
+        })
+
+    return JSONResponse({
+        'entry': entry,
+        'regime_periods': visible_regime_details,
+    })
+
+
+@router.post("/preview/history/{entry_id}/remove")
+def remove_preview_history_entry(
+    entry_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """Delete a single preview history entry."""
+    if not authenticator.is_valid_token(authorization):
+        return authenticator.unauthorized_response()
+
+    entries = _load_preview_history()
+    updated = [e for e in entries if e.get('id') != entry_id]
+
+    if len(updated) == len(entries):
+        return JSONResponse({'error': 'Entry not found'}, status_code=404)
+
+    _save_preview_history(updated)
+    return JSONResponse({'message': 'Entry removed'})
 
 
 @router.post("/sessions/{study_name}/trials/{trial_number}/regimes")
@@ -520,13 +700,20 @@ def get_detector_types(
         return authenticator.unauthorized_response()
 
     from openquant.modes.optimize_detector_mode import _get_detector_param_ranges
+    from openquant.regime.composite import _DETECTOR_REGISTRY
+
+    # Base detectors + any versioned ones from the registry
+    base_names = ['breakout_v3', 'momentum_v4', 'supertrend_v5', 'ema_adx']
+    versioned_names = [k for k in _DETECTOR_REGISTRY if '__' in k]
+    all_names = base_names + versioned_names
 
     types = {}
-    for name in ['breakout_v3', 'momentum_v4', 'supertrend_v5', 'ema_adx']:
+    for name in all_names:
         ranges = _get_detector_param_ranges(name)
-        types[name] = {
-            k: {'type': v['type'].__name__, 'min': v['min'], 'max': v['max']}
-            for k, v in ranges.items()
-        }
+        if ranges:
+            types[name] = {
+                k: {'type': v['type'].__name__, 'min': v['min'], 'max': v['max']}
+                for k, v in ranges.items()
+            }
 
     return JSONResponse({'detector_types': types})

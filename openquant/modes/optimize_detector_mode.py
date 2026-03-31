@@ -27,24 +27,12 @@ from openquant.services.redis import sync_publish
 from openquant.services import logger
 
 
-# Map detector short names to classes (same as composite.py registry)
-_DETECTOR_REGISTRY = {
-    'adx': 'openquant.regime.adx_detector.ADXRegimeDetector',
-    'ema_adx': 'openquant.regime.ema_adx_detector.EmaAdxDetector',
-    'breakout_v3': 'openquant.regime.breakout_detector.BreakoutDetector',
-    'momentum_v4': 'openquant.regime.momentum_detector.MomentumDetector',
-    'supertrend_v5': 'openquant.regime.supertrend_detector.SuperTrendDetector',
-    'structure_v6': 'openquant.regime.structure_detector.StructureDetector',
-    'volatility': 'openquant.regime.volatility_detector.VolatilityRegimeDetector',
-    'trend_strength': 'openquant.regime.trend_strength_detector.TrendStrengthDetector',
-}
+# Use the single shared registry from composite.py (includes versioned detectors)
+from openquant.regime.composite import _DETECTOR_REGISTRY, _resolve_class
 
 
 def _resolve_detector_class(name: str):
-    path = _DETECTOR_REGISTRY.get(name, name)
-    module_path, class_name = path.rsplit('.', 1)
-    module = import_module(module_path)
-    return getattr(module, class_name)
+    return _resolve_class(name, _DETECTOR_REGISTRY)
 
 
 def _resample_to_timeframe(candles_1m: np.ndarray, timeframe_minutes: int) -> np.ndarray:
@@ -485,6 +473,7 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'bull_exit_bars': {'type': int, 'min': 3, 'max': 10},
             'bear_entry_bars': {'type': int, 'min': 1, 'max': 5},
             'bear_exit_bars': {'type': int, 'min': 3, 'max': 10},
+            'trend_sma_period': {'type': int, 'min': 20, 'max': 200},
         }
     elif detector_type == 'structure_v6':
         return {
@@ -492,6 +481,11 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'confirm_bars': {'type': int, 'min': 1, 'max': 5},
         }
     else:
+        # Fallback: for versioned detectors (e.g. supertrend_v5__stable),
+        # look up the base detector's param ranges
+        if '__' in detector_type:
+            base_name = detector_type.split('__')[0]
+            return _get_detector_param_ranges(base_name)
         return {}
 
 
