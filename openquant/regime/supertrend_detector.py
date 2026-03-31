@@ -174,11 +174,16 @@ class SuperTrendDetector:
         self._pending_count = 0
         self._last_candle_timestamp = None
 
-    def detect_all(self, candles: np.ndarray) -> list:
-        """Bulk detection: precompute indicators once, classify every bar."""
+    def detect_all(self, candles: np.ndarray, debug: bool = False) -> list | tuple:
+        """Bulk detection: precompute indicators once, classify every bar.
+
+        When debug=True, returns (labels, debug_rows) where debug_rows is a
+        list of dicts with per-bar indicator values for diagnosis.
+        """
         self.reset()
         n = len(candles)
         labels = [None] * n
+        debug_rows = [] if debug else None
 
         # Precompute all indicators once
         st_result = ta.supertrend(candles, period=self.st_period, factor=self.st_factor, sequential=True)
@@ -215,6 +220,21 @@ class SuperTrendDetector:
 
             labels[i] = self._apply_confirmation(raw)
 
+            if debug:
+                debug_rows.append({
+                    'ts': candles[idx, 0],
+                    'close': current_close,
+                    'st_trend': st_trend,
+                    'st_bullish': current_close > st_trend if not np.isnan(st_trend) else None,
+                    'adx': adx_val,
+                    'chop': chop_val,
+                    'sma': sma_arr[idx] if sma_arr is not None else None,
+                    'raw': raw,
+                    'confirmed': labels[i],
+                })
+
+        if debug:
+            return labels, debug_rows
         return labels
 
     def _classify(self, candles: np.ndarray) -> str:

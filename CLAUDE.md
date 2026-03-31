@@ -66,6 +66,35 @@ jesse optimize RegimeRouterV2 \
   --trials 100 --objective sharpe
 ```
 
+### jesse detector-results
+
+```bash
+# List all detector optimization studies
+jesse detector-results
+
+# Show top trials for a specific study (use full study name from list)
+jesse detector-results supertrend_v5_835791a5-e2c3-469e-8ae4-0a6098d3e8e2
+
+# Show regime breakdown for a specific trial
+jesse detector-results supertrend_v5_835791a5-e2c3-469e-8ae4-0a6098d3e8e2 -t 628
+```
+
+### jesse detector-preview
+
+Requires the server to be running (`jesse run`).
+
+```bash
+# Preview detector regime labels over a date range
+jesse detector-preview supertrend_v5 --start 2025-01-25 --finish 2026-03-29
+
+# With custom params
+jesse detector-preview supertrend_v5 --start 2025-01-25 --finish 2026-03-29 \
+  --params '{"trend_sma_period": 50}'
+
+# Machine-readable
+jesse detector-preview supertrend_v5 --start 2025-06-01 --finish 2026-03-25 --json-output
+```
+
 ## Strategy Development Workflow
 
 ### Step 1: Write the strategy

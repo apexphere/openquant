@@ -703,7 +703,7 @@ def get_detector_types(
     from openquant.regime.composite import _DETECTOR_REGISTRY
 
     # Base detectors + any versioned ones from the registry
-    base_names = ['breakout_v3', 'momentum_v4', 'supertrend_v5', 'ema_adx']
+    base_names = ['breakout_v3', 'momentum_v4', 'supertrend_v5', 'supertrend_v6', 'ema_adx']
     versioned_names = [k for k in _DETECTOR_REGISTRY if '__' in k]
     all_names = base_names + versioned_names
 

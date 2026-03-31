@@ -31,6 +31,7 @@ _DETECTOR_REGISTRY = {
     'breakout_v3': 'openquant.regime.breakout_detector.BreakoutDetector',
     'momentum_v4': 'openquant.regime.momentum_detector.MomentumDetector',
     'supertrend_v5': 'openquant.regime.supertrend_detector.SuperTrendDetector',
+    'supertrend_v6': 'openquant.regime.supertrend_detector_v6.SuperTrendDetectorV6',
     'structure_v6': 'openquant.regime.structure_detector.StructureDetector',
 }
 
@@ -47,6 +48,24 @@ _BEHAVIOR_REGISTRY = {
 _FILTER_REGISTRY = {
     'candle_energy': 'openquant.regime.filters.candle_energy.CandleEnergyFilter',
 }
+
+
+def _register_versioned_components():
+    """Auto-register versioned detectors and behaviors from versions/ dirs."""
+    try:
+        from openquant.versioning import discover_versioned_components
+        discovered = discover_versioned_components()
+        for key, import_path in discovered.get('detectors', {}).items():
+            if key not in _DETECTOR_REGISTRY:
+                _DETECTOR_REGISTRY[key] = import_path
+        for key, import_path in discovered.get('behaviors', {}).items():
+            if key not in _BEHAVIOR_REGISTRY:
+                _BEHAVIOR_REGISTRY[key] = import_path
+    except Exception:
+        pass  # versioning is optional — don't break startup
+
+
+_register_versioned_components()
 
 
 def _resolve_class(name: str, registry: dict):

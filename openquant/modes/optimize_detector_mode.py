@@ -475,6 +475,24 @@ def _get_detector_param_ranges(detector_type: str) -> dict:
             'bear_exit_bars': {'type': int, 'min': 3, 'max': 10},
             'trend_sma_period': {'type': int, 'min': 20, 'max': 200},
         }
+    elif detector_type == 'supertrend_v6':
+        return {
+            'st_period': {'type': int, 'min': 5, 'max': 30},
+            'st_factor': {'type': float, 'min': 1.5, 'max': 5.0},
+            'adx_period': {'type': int, 'min': 7, 'max': 30},
+            'chop_period': {'type': int, 'min': 7, 'max': 30},
+            'trend_sma_period': {'type': int, 'min': 20, 'max': 200},
+            'alpha': {'type': float, 'min': 0.1, 'max': 0.6},
+            'alpha_boost': {'type': float, 'min': 0.3, 'max': 0.9},
+            'strong_entry': {'type': float, 'min': 0.55, 'max': 0.85},
+            'strong_exit': {'type': float, 'min': 0.40, 'max': 0.70},
+            'weak_entry': {'type': float, 'min': 0.25, 'max': 0.55},
+            'weak_exit': {'type': float, 'min': 0.10, 'max': 0.40},
+            'w_st': {'type': float, 'min': 0.20, 'max': 0.60},
+            'w_adx': {'type': float, 'min': 0.05, 'max': 0.35},
+            'w_chop': {'type': float, 'min': 0.05, 'max': 0.30},
+            'w_sma': {'type': float, 'min': 0.10, 'max': 0.40},
+        }
     elif detector_type == 'structure_v6':
         return {
             'swing_period': {'type': int, 'min': 5, 'max': 25},

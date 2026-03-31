@@ -641,12 +641,12 @@ def detector_results(study_name, trial) -> None:
         summaries = optuna.study.get_all_study_summaries(storage=storage)
         summaries.sort(key=lambda s: s.datetime_start or '', reverse=True)
 
-        click.echo(f'{"Detector":<18} {"Trials":>7} {"Best":>8} {"Started":<20}')
-        click.echo('-' * 58)
+        click.echo(f'{"Detector":<40} {"Trials":>7} {"Best":>8} {"Started":<20}')
+        click.echo('-' * 80)
         for s in summaries:
             best = f'{s.best_trial.value:.4f}' if s.best_trial and s.best_trial.value is not None else '—'
             dt = s.datetime_start.strftime('%Y-%m-%d %H:%M') if s.datetime_start else '—'
-            click.echo(f'{s.study_name[:18]:<18} {s.n_trials:>7} {best:>8} {dt:<20}')
+            click.echo(f'{s.study_name:<40} {s.n_trials:>7} {best:>8} {dt:<20}')
         return
 
     # Show specific study
@@ -712,8 +712,10 @@ def detector_results(study_name, trial) -> None:
 @click.option('--params', 'extra_params', default=None,
               help='Override params as JSON string, e.g. \'{"trend_sma_period": 100}\'')
 @click.option('--json-output', is_flag=True, help='Output raw JSON')
+@click.option('--debug', 'debug_date', default=None,
+              help='Show per-bar indicator values around a date (YYYY-MM-DD), ±15 bars')
 def detector_preview(detector_type, start, finish, exchange, symbol,
-                     extra_params, json_output) -> None:
+                     extra_params, json_output, debug_date) -> None:
     """Run a detector preview and show regime periods.
 
     Requires the server to be running (jesse run).
@@ -726,6 +728,9 @@ def detector_preview(detector_type, start, finish, exchange, symbol,
           --params '{"trend_sma_period": 50}'
 
         jesse detector-preview supertrend_v5 --start 2025-06-01 --finish 2026-03-25 --json-output
+
+        jesse detector-preview supertrend_v5 --start 2025-01-25 --finish 2026-03-29 \\
+          --debug 2025-08-16
     """
     import requests
 
@@ -810,6 +815,79 @@ def detector_preview(detector_type, start, finish, exchange, symbol,
 
     click.echo()
     click.echo(f'{len(periods)} regime periods total.')
+
+    # Debug: show per-bar indicator values around a specific date
+    if debug_date:
+        _detector_debug(detector_type, params, exchange, symbol,
+                        start, finish, debug_date)
+
+
+def _detector_debug(detector_type, params, exchange, symbol,
+                    start, finish, debug_date):
+    """Print per-bar indicator values around a date for diagnosis."""
+    from openquant.modes.optimize_detector_mode import _resolve_detector_class
+    from openquant.controllers.detector_optimization_controller import (
+        _get_daily_candles_cached,
+    )
+    import numpy as np
+
+    start_ts = jh.date_to_timestamp(start)
+    finish_ts = jh.date_to_timestamp(finish)
+    debug_ts = jh.date_to_timestamp(debug_date)
+
+    daily_candles = _get_daily_candles_cached(exchange, symbol, start_ts, finish_ts)
+    if daily_candles is None or len(daily_candles) == 0:
+        click.echo('No candle data for debug.')
+        return
+
+    DetectorClass = _resolve_detector_class(detector_type)
+    detector = DetectorClass(**params)
+    _labels, debug_rows = detector.detect_all(daily_candles, debug=True)
+
+    # Find rows near the debug date (±15 bars)
+    nearby = []
+    for row in debug_rows:
+        if abs(row['ts'] - debug_ts) <= 15 * 86400 * 1000:
+            nearby.append(row)
+
+    if not nearby:
+        click.echo(f'No data near {debug_date}.')
+        return
+
+    click.echo()
+    click.echo(f'Debug: indicator values ±15 bars around {debug_date}')
+    click.echo(f'Thresholds: ADX>{detector.adx_threshold:.1f}  '
+               f'CHOP<{detector.chop_trending:.1f}(trend) '
+               f'>{detector.chop_ranging:.1f}(range)  '
+               f'SMA({detector.trend_sma_period})')
+    click.echo()
+    click.echo(f'{"Date":<12} {"Close":>9} {"ST Line":>9} {"ST Dir":>6} '
+               f'{"ADX":>6} {"CHOP":>6} {"SMA":>9} '
+               f'{"Raw":<16} {"Confirmed":<16}')
+    click.echo('-' * 105)
+
+    for row in nearby:
+        ts = row['ts']
+        date_str = datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d')
+        close = row['close']
+        st = row['st_trend']
+        st_dir = 'BULL' if row['st_bullish'] else 'BEAR'
+        adx = row['adx']
+        chop = row['chop']
+        sma = row['sma']
+        raw = row['raw']
+        confirmed = row['confirmed']
+
+        # Highlight rows where raw != confirmed (confirmation is overriding)
+        marker = ' *' if raw != confirmed else '  '
+
+        sma_str = f'{sma:>9,.0f}' if sma is not None and not np.isnan(sma) else '      N/A'
+        adx_str = f'{adx:>6.1f}' if not np.isnan(adx) else '   NaN'
+        chop_str = f'{chop:>6.1f}' if not np.isnan(chop) else '   NaN'
+
+        click.echo(f'{date_str:<12} {close:>9,.0f} {st:>9,.0f} {st_dir:>6} '
+                   f'{adx_str} {chop_str} {sma_str} '
+                   f'{raw:<16} {confirmed:<16}{marker}')
 
 
 @cli.command('resume-optimize')
