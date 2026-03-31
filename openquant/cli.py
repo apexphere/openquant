@@ -798,14 +798,18 @@ def detector_preview(detector_type, start, finish, exchange, symbol,
         pct = rp.get('pct_change', 0)
 
         # Color regime labels
-        if 'trending-up' in regime:
+        if regime in ('bullish', 'trending-up'):
             regime_str = click.style(f'{regime:<18}', fg='green')
-        elif 'trending-down' in regime:
+        elif regime in ('bearish', 'trending-down'):
             regime_str = click.style(f'{regime:<18}', fg='red')
+        elif regime == 'ranging':
+            regime_str = click.style(f'{regime:<18}', fg='yellow')
         elif 'ranging-up' in regime:
             regime_str = click.style(f'{regime:<18}', fg='bright_green')
-        else:
+        elif 'ranging-down' in regime:
             regime_str = click.style(f'{regime:<18}', fg='bright_red')
+        else:
+            regime_str = click.style(f'{regime:<18}', fg='white')
 
         pct_color = 'green' if pct >= 0 else 'red'
         pct_str = click.style(f'{pct:+.1f}%', fg=pct_color)

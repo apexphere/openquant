@@ -1,28 +1,21 @@
-"""V7 SuperTrend regime detector — SMA dominance gate.
+"""V7 SuperTrend regime detector — 3 regimes with SMA dominance gate.
 
-Extends V6 with a macro trend gate: price vs SMA(100) determines
-the dominant direction. Trending labels are only allowed when the
-confidence system AND the macro direction agree.
+Three regimes: bullish, bearish, ranging.
 
-Key change from V6:
-    If price is below SMA → macro trend is bearish:
-        - trending-up is BLOCKED (forced to ranging-up at most)
-        - trending-down is the natural dominant state
-    If price is above SMA → macro trend is bullish:
-        - trending-down is BLOCKED (forced to ranging-down at most)
-        - trending-up is the natural dominant state
+    bullish  = confidence shows trend strength AND price above SMA (macro agrees)
+    bearish  = confidence shows trend strength AND price below SMA (macro agrees)
+    ranging  = everything else (low conviction, or micro contradicts macro)
 
-This makes ranging the dominant label (where markets spend most time)
-and reserves trending for periods where both micro signals AND macro
-structure agree. Prevents false trending-up labels during bear market
-rallies and false trending-down during bull pullbacks.
+This eliminates misleading direction labels on ranging states. Markets
+spend most time ranging; bullish/bearish only fire when both the
+confidence system AND macro structure agree.
 
-All V6 features preserved:
+Guardrails from V6 preserved:
     - Confidence-based smoothing with exponential alpha
     - 2-bar minimum hold to prevent flickering
-    - Forced ranging transition between opposite trending
+    - Forced ranging transition between bullish↔bearish
     - Price circuit breaker for crash protection
-    - Chaotic detection
+    - ADX floor: ADX < 15 forces ranging (no zombie trends)
 """
 from collections import deque
 
@@ -31,11 +24,9 @@ import openquant.indicators as ta
 
 
 REGIMES = frozenset({
-    'trending-up',
-    'trending-down',
-    'ranging-up',
-    'ranging-down',
-    'chaotic',
+    'bullish',
+    'bearish',
+    'ranging',
 })
 
 
@@ -104,12 +95,10 @@ def _count_flips(history: deque) -> int:
 
 
 class SuperTrendDetectorV7:
-    """Confidence-based SuperTrend regime detector with SMA dominance gate.
+    """3-regime SuperTrend detector: bullish, bearish, ranging.
 
-    Extends V6: trending labels are only allowed when the macro trend
-    (price vs SMA) agrees with the confidence direction. This makes
-    ranging the dominant state and prevents false trending labels during
-    counter-macro moves.
+    Trending labels require both micro confidence AND macro agreement
+    (price vs SMA). Everything else is ranging.
 
     Parameters
     ----------
@@ -137,10 +126,6 @@ class SuperTrendDetectorV7:
         Directional strength to enter weak trending. Default 0.40.
     weak_exit : float
         Directional strength to exit weak trending. Default 0.35.
-    chaos_flips : int
-        Direction flips in 10 bars to trigger chaotic. Default 4.
-    chaos_atr_pct : float
-        ATR percentile threshold for chaotic. Default 0.60.
     circuit_breaker_atr : float
         ATR multiplier for price circuit breaker. Default 1.5.
     w_st : float
@@ -167,8 +152,6 @@ class SuperTrendDetectorV7:
         strong_exit: float = 0.55,
         weak_entry: float = 0.40,
         weak_exit: float = 0.35,
-        chaos_flips: int = 4,
-        chaos_atr_pct: float = 0.60,
         circuit_breaker_atr: float = 1.5,
         w_st: float = 0.40,
         w_adx: float = 0.30,
@@ -187,8 +170,6 @@ class SuperTrendDetectorV7:
         self.strong_exit = strong_exit
         self.weak_entry = weak_entry
         self.weak_exit = weak_exit
-        self.chaos_flips = chaos_flips
-        self.chaos_atr_pct = chaos_atr_pct
         self.circuit_breaker_atr = circuit_breaker_atr
         self.w_st = w_st
         self.w_adx = w_adx
@@ -207,6 +188,7 @@ class SuperTrendDetectorV7:
         self._trending_entry_price: float | None = None
         self._prev_st_bullish = None
         self._last_sma_val: float | None = None
+        self._last_adx_val: float | None = None
 
     @property
     def regime(self) -> str | None:
@@ -225,6 +207,7 @@ class SuperTrendDetectorV7:
         self._trending_entry_price = None
         self._prev_st_bullish = None
         self._last_sma_val = None
+        self._last_adx_val = None
 
     def detect(self, candles: np.ndarray) -> str:
         min_bars = max(self.st_period, self.adx_period, self.chop_period) * 3
@@ -270,10 +253,11 @@ class SuperTrendDetectorV7:
             atr_val = atr_arr[idx]
 
             if np.isnan(adx_val) or np.isnan(chop_val) or np.isnan(st_trend):
-                labels[i] = self._confirmed_regime or 'ranging-up'
+                labels[i] = self._confirmed_regime or 'ranging'
                 continue
 
             self._last_sma_val = sma_val
+            self._last_adx_val = adx_val
 
             raw_conf = self._compute_signals_to_confidence(
                 close, st_trend, adx_val, chop_val, sma_val, atr_val
@@ -296,10 +280,6 @@ class SuperTrendDetectorV7:
                     'directional_strength': abs(self._smoothed_confidence - 0.5) * 2,
                     'current_tier': self._current_tier,
                     'macro_trend': macro,
-                    'raw': self._format_regime(
-                        'bull' if raw_conf > 0.5 else 'bear',
-                        self._current_tier,
-                    ),
                     'confirmed': labels[i],
                 })
 
@@ -319,6 +299,7 @@ class SuperTrendDetectorV7:
             return 0.5
 
         self._last_sma_val = sma_val
+        self._last_adx_val = adx_val
 
         return self._compute_signals_to_confidence(
             close, st.trend, adx_val, chop_val, sma_val, atr_val
@@ -339,25 +320,30 @@ class SuperTrendDetectorV7:
         )
 
     def _macro_trend(self, close: float) -> str:
-        """Determine macro trend from price vs SMA."""
         if self._last_sma_val is None or np.isnan(self._last_sma_val):
             return 'neutral'
         if close > self._last_sma_val:
             return 'bullish'
         return 'bearish'
 
-    def _apply_dominance_gate(self, candidate: str, close: float) -> str:
-        """Block trending labels that contradict the macro trend.
+    def _classify_regime(self, close: float) -> str:
+        """Map tier + macro trend to 3-regime output.
 
-        If macro is bearish (price < SMA): trending-up → ranging-up
-        If macro is bullish (price > SMA): trending-down → ranging-down
+        bullish  = trending tier + macro bullish (price > SMA)
+        bearish  = trending tier + macro bearish (price < SMA)
+        ranging  = everything else
         """
+        if self._current_tier not in ('weak_trending', 'strong_trending'):
+            return 'ranging'
+
         macro = self._macro_trend(close)
-        if macro == 'bearish' and candidate == 'trending-up':
-            return 'ranging-up'
-        if macro == 'bullish' and candidate == 'trending-down':
-            return 'ranging-down'
-        return candidate
+        if macro == 'bullish' and self._current_direction == 'bull':
+            return 'bullish'
+        if macro == 'bearish' and self._current_direction == 'bear':
+            return 'bearish'
+
+        # Micro says trending but macro disagrees → ranging
+        return 'ranging'
 
     def _update_state(self, raw_confidence: float, atr_val: float = None, close: float = None) -> str:
         self._raw_confidence_history.append(raw_confidence)
@@ -373,28 +359,19 @@ class SuperTrendDetectorV7:
         self._current_direction = 'bull' if self._smoothed_confidence > 0.5 else 'bear'
         directional_strength = abs(self._smoothed_confidence - 0.5) * 2.0
 
-        # Chaotic check
-        if self._is_chaotic(atr_val):
-            self._current_tier = 'chaotic'
-            self._confirmed_regime = 'chaotic'
-            return 'chaotic'
-
-        if self._current_tier == 'chaotic':
-            if not self._can_exit_chaotic(directional_strength):
-                self._confirmed_regime = 'chaotic'
-                return 'chaotic'
-
         # Hysteresis tier classification
         self._current_tier = self._classify_tier(directional_strength)
-        candidate = self._format_regime(
-            self._current_direction, self._current_tier,
-        )
 
-        # Dominance gate: block trending against macro trend
-        if close is not None:
-            candidate = self._apply_dominance_gate(candidate, close)
+        # ADX floor: ADX < 15 means no trend
+        if (self._last_adx_val is not None
+                and self._last_adx_val < 15.0
+                and self._current_tier in ('weak_trending', 'strong_trending')):
+            self._current_tier = 'ranging'
 
-        # Transition guard: no direct trending↔trending
+        # Map to 3-regime output
+        candidate = self._classify_regime(close) if close is not None else 'ranging'
+
+        # Transition guard: no direct bullish↔bearish
         candidate = self._apply_transition_guard(candidate)
 
         # 2-bar minimum hold
@@ -416,7 +393,7 @@ class SuperTrendDetectorV7:
 
         # Track entry price for circuit breaker
         if self._confirmed_regime != prev_confirmed:
-            if self._confirmed_regime in ('trending-up', 'trending-down'):
+            if self._confirmed_regime in ('bullish', 'bearish'):
                 self._trending_entry_price = close
             else:
                 self._trending_entry_price = None
@@ -459,7 +436,7 @@ class SuperTrendDetectorV7:
                 tier = 'strong_trending'
             elif directional_strength < self.weak_exit:
                 tier = 'ranging'
-        elif tier == 'ranging' or tier == 'chaotic':
+        elif tier == 'ranging':
             if directional_strength >= self.strong_entry:
                 tier = 'strong_trending'
             elif directional_strength >= self.weak_entry:
@@ -469,45 +446,30 @@ class SuperTrendDetectorV7:
 
         return tier
 
-    def _is_chaotic(self, atr_val: float | None) -> bool:
-        flips = _count_flips(self._raw_confidence_history)
-        if flips < self.chaos_flips:
-            return False
-        if atr_val is None or len(self._atr_history) < 10:
-            return False
-        sorted_atr = sorted(self._atr_history)
-        percentile_idx = int(len(sorted_atr) * self.chaos_atr_pct)
-        threshold = sorted_atr[min(percentile_idx, len(sorted_atr) - 1)]
-        return atr_val >= threshold
-
-    def _can_exit_chaotic(self, directional_strength: float) -> bool:
-        flips = _count_flips(self._raw_confidence_history)
-        return flips < 2 and directional_strength > 0.30
-
     def _check_circuit_breaker(self, close: float | None) -> str | None:
         if (
             close is None
             or self._trending_entry_price is None
             or not self._atr_history
-            or self._confirmed_regime not in ('trending-up', 'trending-down')
+            or self._confirmed_regime not in ('bullish', 'bearish')
         ):
             return None
 
         atr = self._atr_history[-1]
         threshold = self.circuit_breaker_atr * atr
 
-        if self._confirmed_regime == 'trending-up':
+        if self._confirmed_regime == 'bullish':
             if self._trending_entry_price - close > threshold:
-                return 'ranging-down'
-        elif self._confirmed_regime == 'trending-down':
+                return 'ranging'
+        elif self._confirmed_regime == 'bearish':
             if close - self._trending_entry_price > threshold:
-                return 'ranging-up'
+                return 'ranging'
 
         return None
 
     _OPPOSITE_TRENDING = {
-        ('trending-up', 'trending-down'),
-        ('trending-down', 'trending-up'),
+        ('bullish', 'bearish'),
+        ('bearish', 'bullish'),
     }
 
     def _apply_transition_guard(self, candidate: str) -> str:
@@ -515,15 +477,5 @@ class SuperTrendDetectorV7:
             return candidate
         pair = (self._confirmed_regime, candidate)
         if pair in self._OPPOSITE_TRENDING:
-            suffix = candidate.split('-')[1]
-            return f'ranging-{suffix}'
+            return 'ranging'
         return candidate
-
-    @staticmethod
-    def _format_regime(direction: str, tier: str) -> str:
-        if tier == 'chaotic':
-            return 'chaotic'
-        suffix = 'up' if direction == 'bull' else 'down'
-        if tier in ('strong_trending', 'weak_trending'):
-            return f'trending-{suffix}'
-        return f'ranging-{suffix}'
