@@ -52,6 +52,9 @@ services:
       - openquant
     ports:
       - "3000:3000"
+    volumes:
+      - ./dashboard/src:/app/src
+    command: npm run dev
 
 volumes:
   pgdata:

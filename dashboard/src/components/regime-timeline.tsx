@@ -13,20 +13,24 @@ import {
 import type { RegimePeriod, ChartData } from "@/lib/types";
 
 const REGIME_COLORS: Record<string, string> = {
+  bullish: "#166534",
+  bearish: "#991b1b",
+  ranging: "#1e293b",
   "trending-up": "#0f3318",
   "trending-down": "#330f0f",
   "ranging-up": "#1a4a2a",
   "ranging-down": "#4a1a1a",
-  ranging: "#2a2a38",
   "cold-start": "#133044",
 };
 
 const REGIME_TEXT_COLORS: Record<string, string> = {
+  bullish: "#4ade80",
+  bearish: "#f87171",
+  ranging: "#8b949e",
   "trending-up": "#3b8a4a",
   "trending-down": "#a34a4a",
   "ranging-up": "#6fdc8c",
   "ranging-down": "#ff8389",
-  ranging: "#8b949e",
   "cold-start": "#58a6ff",
 };
 
@@ -493,7 +497,7 @@ export function RegimeTimeline({
               x1={period.start * 1000}
               x2={period.end * 1000}
               fill={REGIME_COLORS[period.regime] ?? "transparent"}
-              fillOpacity={0.8}
+              fillOpacity={0.9}
               yAxisId={hasCandles ? "price" : "equity"}
               ifOverflow="extendDomain"
               label={undefined}

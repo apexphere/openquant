@@ -702,10 +702,8 @@ def get_detector_types(
     from openquant.modes.optimize_detector_mode import _get_detector_param_ranges
     from openquant.regime.composite import _DETECTOR_REGISTRY
 
-    # Base detectors + any versioned ones from the registry
-    base_names = ['breakout_v3', 'momentum_v4', 'supertrend_v5', 'supertrend_v6', 'ema_adx']
-    versioned_names = [k for k in _DETECTOR_REGISTRY if '__' in k]
-    all_names = base_names + versioned_names
+    # All registered detectors (base + versioned)
+    all_names = list(_DETECTOR_REGISTRY.keys())
 
     types = {}
     for name in all_names:
