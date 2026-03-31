@@ -14,9 +14,9 @@ Core concept:
 
 Signals (default weights):
     SuperTrend direction (0.40) — binary 1.0/0.0
-    ADX strength (0.20)        — clamp((adx - 15) / 30, 0, 1)
+    ADX strength (0.30)        — clamp((adx - 15) / 30, 0, 1)
     CHOP directionality (0.15) — clamp((70 - chop) / 30, 0, 1)
-    SMA position (0.25)        — distance-weighted, ATR-normalized
+    SMA position (0.15)        — distance-weighted, ATR-normalized
 
 Smoothing:
     smoothed = alpha * raw + (1 - alpha) * prev_smoothed
@@ -24,7 +24,7 @@ Smoothing:
 
 Tier thresholds (with hysteresis):
     Strong trending: enter > 0.70, exit < 0.55
-    Weak trending:   enter > 0.40, exit < 0.25
+    Weak trending:   enter > 0.40, exit < 0.35
     Ranging:         default state
     Chaotic:         4+ direction flips in 10 bars AND elevated ATR
 
@@ -123,9 +123,13 @@ def _compute_raw_confidence(
         avg_strength = 0.5
 
     # Final confidence: direction component weighted by total,
-    # with strength modulating distance from neutral
+    # with strength modulating distance from neutral.
+    # Scaling: (0.3 + 0.7 * avg_strength) means at zero strength,
+    # direction has only 30% influence (pulled toward 0.5).
+    # This prevents weak trends (low ADX, high CHOP) from sustaining
+    # trending labels when indicators show no real trend.
     base = dir_normalized
-    modulated = 0.5 + (base - 0.5) * (0.5 + 0.5 * avg_strength)
+    modulated = 0.5 + (base - 0.5) * (0.3 + 0.7 * avg_strength)
 
     return _clamp(modulated, 0.0, 1.0)
 
@@ -172,7 +176,7 @@ class SuperTrendDetectorV6:
     weak_entry : float
         Directional strength to enter weak trending. Default 0.40.
     weak_exit : float
-        Directional strength to exit weak trending. Default 0.25.
+        Directional strength to exit weak trending. Default 0.35.
     chaos_flips : int
         Direction flips in 10 bars to trigger chaotic. Default 4.
     chaos_atr_pct : float
@@ -180,11 +184,11 @@ class SuperTrendDetectorV6:
     w_st : float
         SuperTrend weight. Default 0.40.
     w_adx : float
-        ADX weight. Default 0.20.
+        ADX weight. Default 0.30.
     w_chop : float
         CHOP weight. Default 0.15.
     w_sma : float
-        SMA weight. Default 0.25.
+        SMA weight. Default 0.15.
     """
 
     def __init__(
@@ -200,13 +204,13 @@ class SuperTrendDetectorV6:
         strong_entry: float = 0.70,
         strong_exit: float = 0.55,
         weak_entry: float = 0.40,
-        weak_exit: float = 0.25,
+        weak_exit: float = 0.35,
         chaos_flips: int = 4,
         chaos_atr_pct: float = 0.60,
         w_st: float = 0.40,
-        w_adx: float = 0.20,
+        w_adx: float = 0.30,
         w_chop: float = 0.15,
-        w_sma: float = 0.25,
+        w_sma: float = 0.15,
     ) -> None:
         self.st_period = st_period
         self.st_factor = st_factor
@@ -232,6 +236,8 @@ class SuperTrendDetectorV6:
         self._current_direction: str = 'bull'
         self._raw_confidence_history: deque = deque(maxlen=10)
         self._confirmed_regime: str | None = None
+        self._pending_regime: str | None = None
+        self._pending_regime_bars: int = 0
         self._last_candle_timestamp = None
         self._atr_history: deque = deque(maxlen=50)
 
@@ -246,8 +252,11 @@ class SuperTrendDetectorV6:
         self._current_direction = 'bull'
         self._raw_confidence_history = deque(maxlen=10)
         self._confirmed_regime = None
+        self._pending_regime = None
+        self._pending_regime_bars = 0
         self._last_candle_timestamp = None
         self._atr_history = deque(maxlen=50)
+        self._prev_st_bullish = None
 
     def detect(self, candles: np.ndarray) -> str:
         """Classify the current market regime from candle data."""
@@ -398,18 +407,57 @@ class SuperTrendDetectorV6:
 
         # Apply hysteresis thresholds
         self._current_tier = self._classify_tier(directional_strength)
-        self._confirmed_regime = self._format_regime(
+        candidate = self._format_regime(
             self._current_direction, self._current_tier,
         )
+
+        # 2-bar minimum hold: don't emit a regime change until the new
+        # regime has held for 2 consecutive bars. Prevents single-day
+        # flicker segments that cause unnecessary position liquidations.
+        if self._confirmed_regime is None:
+            # First classification — emit immediately
+            self._confirmed_regime = candidate
+        elif candidate == self._confirmed_regime:
+            # Same as current — reset pending
+            self._pending_regime = None
+            self._pending_regime_bars = 0
+        elif candidate == self._pending_regime:
+            # Same as pending — increment hold counter
+            self._pending_regime_bars += 1
+            if self._pending_regime_bars >= 2:
+                self._confirmed_regime = candidate
+                self._pending_regime = None
+                self._pending_regime_bars = 0
+        else:
+            # New candidate — start pending
+            self._pending_regime = candidate
+            self._pending_regime_bars = 1
+
         return self._confirmed_regime
 
     def _choose_alpha(self, raw_confidence: float) -> float:
-        """Select smoothing factor. Use boosted alpha for ranging breakouts."""
-        if self._current_tier != 'ranging':
+        """Select smoothing factor.
+
+        Uses boosted alpha in two cases:
+        1. Breaking out of ranging (strong raw directional signal)
+        2. Direction contradiction in trending (raw opposes current
+           direction by > 0.40) — lets genuine reversals punch through
+           the smoothing faster without destabilizing mild dips
+        """
+        if self._current_tier == 'ranging':
+            raw_directional = abs(raw_confidence - 0.5) * 2.0
+            if raw_directional > 0.40:
+                return self.alpha_boost
             return self.alpha
-        raw_directional = abs(raw_confidence - 0.5) * 2.0
-        if raw_directional > 0.60:
-            return self.alpha_boost
+
+        if self._current_tier in ('weak_trending', 'strong_trending'):
+            if self._current_direction == 'bull':
+                contradiction = 0.5 - raw_confidence
+            else:
+                contradiction = raw_confidence - 0.5
+            if contradiction > 0.40:
+                return self.alpha_boost
+
         return self.alpha
 
     def _classify_tier(self, directional_strength: float) -> str:

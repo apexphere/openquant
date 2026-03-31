@@ -65,6 +65,7 @@ export interface BacktestMetrics {
   benchmark?: {
     buy_and_hold_return_percentage: number;
     strat_vs_buy_and_hold: number;
+    alpha?: number;
   };
 }
 
@@ -128,6 +129,7 @@ export interface OptimizationTrial {
   training_log: Record<string, any>;
   testing_log: Record<string, any>;
   parameters: Record<string, any>;
+  params?: Record<string, any>;
 }
 
 export interface CandleExisting {

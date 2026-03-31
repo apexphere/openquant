@@ -128,7 +128,7 @@ class TestDefaultParameters:
         assert d.strong_entry == 0.70
         assert d.strong_exit == 0.55
         assert d.weak_entry == 0.40
-        assert d.weak_exit == 0.25
+        assert d.weak_exit == 0.35
         assert d.chaos_flips == 4
         assert d.chaos_atr_pct == 0.60
 

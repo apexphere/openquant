@@ -369,14 +369,20 @@ def _build_ground_truth(candles: np.ndarray, window: int = 20, trend_threshold: 
 
 
 def score_detector(detector, candles: np.ndarray, visible_start_idx: int = 0) -> tuple[float, list]:
-    """Score by comparing detector labels to ground truth.
+    """Score detector labels using a three-component composite.
 
-    Ground truth uses a centered window — looks back AND forward to
-    determine what the regime actually was. The detector only looks
-    back (real-time). Score = how close the detector gets to the
-    god-mode hindsight view, weighted by move magnitude.
+    Components:
+    - Ground truth direction match (50%): magnitude-weighted agreement with
+      hindsight-optimal labels (centered window looks back AND forward).
+    - Regime-conditional Sharpe (30%): do regime labels actually separate
+      return distributions? trending-up should have positive Sharpe,
+      ranging should have lower variance. This penalizes lazy detectors
+      that label everything one way by direction bias.
+    - Economic value (20%): Sharpe of a regime-following strategy (long in
+      trending-up, short in trending-down, flat in ranging). Also penalized
+      by max drawdown.
 
-    Returns (score, regime_periods).
+    Returns (score, regime_periods). Score is roughly in [-1, 1].
     """
     if len(candles) < 100:
         return -1.0, []
@@ -394,36 +400,42 @@ def score_detector(detector, candles: np.ndarray, visible_start_idx: int = 0) ->
     if len(regime_periods) < 2:
         return -1.0, regime_periods
 
-    # Build ground truth for visible range
+    # --- Component 1: ground truth direction match (50%) ---
+    # Labels already have None for pre-visible-start bars (from _walk_detector).
     truth = _build_ground_truth(candles)
 
-    # Score: for each visible bar, does the detector agree with ground truth?
-    # Weight by daily return magnitude — getting big-move days right matters more.
     total_weight = 0.0
     total_score = 0.0
-
     start = max(visible_start_idx, 1)
     for i in range(start, len(candles)):
         if labels[i] is None:
             continue
-
         daily_return = abs(candles[i, 2] - candles[i-1, 2])
         if daily_return < 0.01:
             continue
-
         total_weight += daily_return
-
         detector_bullish = labels[i] in _BULLISH_LABELS
         truth_bullish = truth[i] in _BULLISH_LABELS
-
-        # Direction match: both bullish or both bearish
         if detector_bullish == truth_bullish:
             total_score += daily_return
         else:
             total_score -= daily_return
 
-    score = total_score / total_weight if total_weight > 0 else 0.0
+    direction_score = total_score / total_weight if total_weight > 0 else 0.0
 
+    # --- Component 2: regime-conditional Sharpe (30%) ---
+    # Rewards detectors that separate return distributions by regime type.
+    # A lazy all-bullish detector scores low here because its "trending-up"
+    # bars include choppy/ranging periods that drag down the per-regime Sharpe.
+    rcs = _regime_conditional_sharpe(candles, labels)
+
+    # --- Component 3: economic value (20%) ---
+    # Sharpe of a regime-following strategy, penalized by max drawdown.
+    # Clamp to [-1, 1] for composite stability.
+    ev_raw = _economic_value(candles, labels)
+    ev = float(np.clip(ev_raw, -1.0, 1.0))
+
+    score = 0.50 * direction_score + 0.30 * rcs + 0.20 * ev
     return score, regime_periods
 
 

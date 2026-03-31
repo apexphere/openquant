@@ -56,10 +56,10 @@ interface RegimeDetail {
 }
 
 const REGIME_LABEL_COLORS: Record<string, string> = {
-  "trending-up": "var(--green)",
-  "trending-down": "var(--red)",
-  "ranging-up": "var(--blue)",
-  "ranging-down": "var(--purple)",
+  "trending-up": "#3b8a4a",
+  "trending-down": "#a34a4a",
+  "ranging-up": "#6fdc8c",
+  "ranging-down": "#ff8389",
 };
 
 function DetailPanel({
@@ -235,12 +235,12 @@ function DetailPanel({
                     {rd.start_date} &rarr; {rd.end_date}
                   </td>
                   <td className="py-1.5 px-2 text-right">{rd.days}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">${rd.start_price.toLocaleString()}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">${rd.end_price.toLocaleString()}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">${rd.high.toLocaleString()}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">${rd.low.toLocaleString()}</td>
-                  <td className={`py-1.5 px-2 text-right font-mono ${rd.pct_change >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
-                    {rd.pct_change >= 0 ? "+" : ""}{rd.pct_change.toFixed(2)}%
+                  <td className="py-1.5 px-2 text-right font-mono">{rd.start_price != null ? `$${rd.start_price.toLocaleString()}` : '—'}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{rd.end_price != null ? `$${rd.end_price.toLocaleString()}` : '—'}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{rd.high != null ? `$${rd.high.toLocaleString()}` : '—'}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{rd.low != null ? `$${rd.low.toLocaleString()}` : '—'}</td>
+                  <td className={`py-1.5 px-2 text-right font-mono ${(rd.pct_change ?? 0) >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                    {rd.pct_change != null ? `${rd.pct_change >= 0 ? "+" : ""}${rd.pct_change.toFixed(2)}%` : '—'}
                   </td>
                 </tr>
               ))}

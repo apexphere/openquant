@@ -7,6 +7,7 @@ const links = [
   { href: "/", label: "Backtests" },
   { href: "/optimization", label: "Optimization" },
   { href: "/detector-optimization", label: "Detectors" },
+  { href: "/detector-viewer", label: "Viewer" },
   { href: "/compare", label: "Compare" },
   { href: "/data", label: "Data" },
 ];

@@ -856,15 +856,32 @@ def _detector_debug(detector_type, params, exchange, symbol,
 
     click.echo()
     click.echo(f'Debug: indicator values ±15 bars around {debug_date}')
-    click.echo(f'Thresholds: ADX>{detector.adx_threshold:.1f}  '
-               f'CHOP<{detector.chop_trending:.1f}(trend) '
-               f'>{detector.chop_ranging:.1f}(range)  '
-               f'SMA({detector.trend_sma_period})')
+
+    # V6 confidence-based detector has different params than V5
+    is_v6 = hasattr(detector, '_smoothed_confidence')
+    if is_v6:
+        click.echo(f'Params: alpha={detector.alpha}  alpha_boost={detector.alpha_boost}  '
+                   f'strong={detector.strong_entry}/{detector.strong_exit}  '
+                   f'weak={detector.weak_entry}/{detector.weak_exit}  '
+                   f'SMA({detector.trend_sma_period})')
+    else:
+        click.echo(f'Thresholds: ADX>{detector.adx_threshold:.1f}  '
+                   f'CHOP<{detector.chop_trending:.1f}(trend) '
+                   f'>{detector.chop_ranging:.1f}(range)  '
+                   f'SMA({detector.trend_sma_period})')
     click.echo()
-    click.echo(f'{"Date":<12} {"Close":>9} {"ST Line":>9} {"ST Dir":>6} '
-               f'{"ADX":>6} {"CHOP":>6} {"SMA":>9} '
-               f'{"Raw":<16} {"Confirmed":<16}')
-    click.echo('-' * 105)
+
+    if is_v6:
+        click.echo(f'{"Date":<12} {"Close":>9} {"ST Line":>9} {"ST Dir":>6} '
+                   f'{"ADX":>6} {"CHOP":>6} {"SMA":>9} '
+                   f'{"RawConf":>8} {"Smooth":>7} {"DirStr":>7} {"Tier":<14} '
+                   f'{"Confirmed":<16}')
+        click.echo('-' * 135)
+    else:
+        click.echo(f'{"Date":<12} {"Close":>9} {"ST Line":>9} {"ST Dir":>6} '
+                   f'{"ADX":>6} {"CHOP":>6} {"SMA":>9} '
+                   f'{"Raw":<16} {"Confirmed":<16}')
+        click.echo('-' * 105)
 
     for row in nearby:
         ts = row['ts']
@@ -875,19 +892,27 @@ def _detector_debug(detector_type, params, exchange, symbol,
         adx = row['adx']
         chop = row['chop']
         sma = row['sma']
-        raw = row['raw']
         confirmed = row['confirmed']
-
-        # Highlight rows where raw != confirmed (confirmation is overriding)
-        marker = ' *' if raw != confirmed else '  '
 
         sma_str = f'{sma:>9,.0f}' if sma is not None and not np.isnan(sma) else '      N/A'
         adx_str = f'{adx:>6.1f}' if not np.isnan(adx) else '   NaN'
         chop_str = f'{chop:>6.1f}' if not np.isnan(chop) else '   NaN'
 
-        click.echo(f'{date_str:<12} {close:>9,.0f} {st:>9,.0f} {st_dir:>6} '
-                   f'{adx_str} {chop_str} {sma_str} '
-                   f'{raw:<16} {confirmed:<16}{marker}')
+        if is_v6:
+            raw_conf = row.get('raw_confidence', 0)
+            smooth = row.get('smoothed_confidence', 0)
+            dir_str = row.get('directional_strength', 0)
+            tier = row.get('current_tier', '')
+            click.echo(f'{date_str:<12} {close:>9,.0f} {st:>9,.0f} {st_dir:>6} '
+                       f'{adx_str} {chop_str} {sma_str} '
+                       f'{raw_conf:>8.3f} {smooth:>7.3f} {dir_str:>7.3f} {tier:<14} '
+                       f'{confirmed:<16}')
+        else:
+            raw = row['raw']
+            marker = ' *' if raw != confirmed else '  '
+            click.echo(f'{date_str:<12} {close:>9,.0f} {st:>9,.0f} {st_dir:>6} '
+                       f'{adx_str} {chop_str} {sma_str} '
+                       f'{raw:<16} {confirmed:<16}{marker}')
 
 
 @cli.command('resume-optimize')
