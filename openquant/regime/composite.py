@@ -32,6 +32,7 @@ _DETECTOR_REGISTRY = {
     'momentum_v4': 'openquant.regime.momentum_detector.MomentumDetector',
     'supertrend_v5': 'openquant.regime.supertrend_detector.SuperTrendDetector',
     'supertrend_v6': 'openquant.regime.supertrend_detector_v6.SuperTrendDetectorV6',
+    'supertrend_v7': 'openquant.regime.supertrend_detector_v7.SuperTrendDetectorV7',
     'structure_v6': 'openquant.regime.structure_detector.StructureDetector',
 }
 

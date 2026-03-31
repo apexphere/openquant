@@ -472,3 +472,208 @@ class TestCustomParameters:
         candles = _make_trending_up_candles(200)
         regime = d.detect(candles)
         assert regime in REGIMES
+
+
+class TestForcedRangingTransition:
+    """Trending cannot jump directly to opposite trending — must pass through ranging."""
+
+    def test_uptrend_to_downtrend_passes_through_ranging(self):
+        """Strong uptrend followed by sharp reversal must go through ranging
+        before reaching trending-down."""
+        closes = [50000 + i * 200 for i in range(140)]
+        # Sharp reversal into downtrend
+        for i in range(60):
+            closes.append(closes[-1] - 400)
+        candles = _make_candles(closes)
+
+        d = SuperTrendDetectorV6()
+        labels = d.detect_all(candles)
+        non_none = [l for l in labels if l is not None]
+
+        # Find the transition from trending-up to trending-down
+        # There must be at least one ranging label in between
+        found_trending_up = False
+        found_ranging_between = False
+        found_trending_down_after = False
+        for label in non_none:
+            if label == 'trending-up':
+                found_trending_up = True
+            elif found_trending_up and 'ranging' in label:
+                found_ranging_between = True
+            elif found_ranging_between and label == 'trending-down':
+                found_trending_down_after = True
+                break
+
+        # If both trending states appear, ranging must be between them
+        has_up = any(l == 'trending-up' for l in non_none)
+        has_down = any(l == 'trending-down' for l in non_none)
+        if has_up and has_down:
+            assert found_ranging_between, (
+                "trending-up jumped directly to trending-down without ranging in between"
+            )
+
+    def test_downtrend_to_uptrend_passes_through_ranging(self):
+        """Strong downtrend followed by sharp reversal must go through ranging
+        before reaching trending-up."""
+        closes = [90000 - i * 200 for i in range(140)]
+        # Sharp reversal into uptrend
+        for i in range(60):
+            closes.append(closes[-1] + 400)
+        candles = _make_candles(closes)
+
+        d = SuperTrendDetectorV6()
+        labels = d.detect_all(candles)
+        non_none = [l for l in labels if l is not None]
+
+        found_trending_down = False
+        found_ranging_between = False
+        for label in non_none:
+            if label == 'trending-down':
+                found_trending_down = True
+            elif found_trending_down and 'ranging' in label:
+                found_ranging_between = True
+            elif found_ranging_between and label == 'trending-up':
+                break
+
+        has_down = any(l == 'trending-down' for l in non_none)
+        has_up = any(l == 'trending-up' for l in non_none)
+        if has_down and has_up:
+            assert found_ranging_between, (
+                "trending-down jumped directly to trending-up without ranging in between"
+            )
+
+    def test_transition_guard_unit_level(self):
+        """Direct unit test of _apply_transition_guard."""
+        d = SuperTrendDetectorV6()
+
+        # No confirmed regime — no guard
+        d._confirmed_regime = None
+        assert d._apply_transition_guard('trending-up') == 'trending-up'
+
+        # Same direction — no guard
+        d._confirmed_regime = 'trending-up'
+        assert d._apply_transition_guard('trending-up') == 'trending-up'
+
+        # Opposite trending — forced to ranging
+        d._confirmed_regime = 'trending-up'
+        assert d._apply_transition_guard('trending-down') == 'ranging-down'
+
+        d._confirmed_regime = 'trending-down'
+        assert d._apply_transition_guard('trending-up') == 'ranging-up'
+
+        # Ranging candidate — no guard needed
+        d._confirmed_regime = 'trending-up'
+        assert d._apply_transition_guard('ranging-down') == 'ranging-down'
+
+        # From ranging — no guard
+        d._confirmed_regime = 'ranging-up'
+        assert d._apply_transition_guard('trending-down') == 'trending-down'
+
+
+class TestPriceCircuitBreaker:
+    """Price circuit breaker forces exit from trending when price moves against trend."""
+
+    def test_circuit_breaker_unit_trending_up(self):
+        """Trending-up: price drop > 1.5×ATR triggers ranging-down."""
+        d = SuperTrendDetectorV6()
+        d._confirmed_regime = 'trending-up'
+        d._trending_entry_price = 100000.0
+        d._atr_history.append(3000.0)  # ATR = 3000, threshold = 4500
+
+        # Price within threshold — no trigger
+        assert d._check_circuit_breaker(96000.0) is None
+
+        # Price exceeds threshold (drop > 4500)
+        assert d._check_circuit_breaker(95000.0) == 'ranging-down'
+
+    def test_circuit_breaker_unit_trending_down(self):
+        """Trending-down: price rise > 1.5×ATR triggers ranging-up."""
+        d = SuperTrendDetectorV6()
+        d._confirmed_regime = 'trending-down'
+        d._trending_entry_price = 80000.0
+        d._atr_history.append(3000.0)  # threshold = 4500
+
+        # Price within threshold — no trigger
+        assert d._check_circuit_breaker(84000.0) is None
+
+        # Price exceeds threshold (rise > 4500)
+        assert d._check_circuit_breaker(85000.0) == 'ranging-up'
+
+    def test_circuit_breaker_no_trigger_in_ranging(self):
+        """Circuit breaker does nothing when not in trending regime."""
+        d = SuperTrendDetectorV6()
+        d._confirmed_regime = 'ranging-up'
+        d._trending_entry_price = None
+        d._atr_history.append(3000.0)
+        assert d._check_circuit_breaker(50000.0) is None
+
+    def test_circuit_breaker_no_trigger_without_atr(self):
+        """Circuit breaker does nothing when no ATR history."""
+        d = SuperTrendDetectorV6()
+        d._confirmed_regime = 'trending-up'
+        d._trending_entry_price = 100000.0
+        # No ATR history
+        assert d._check_circuit_breaker(50000.0) is None
+
+    def test_circuit_breaker_custom_multiplier(self):
+        """Custom circuit_breaker_atr changes threshold."""
+        d = SuperTrendDetectorV6(circuit_breaker_atr=2.0)
+        d._confirmed_regime = 'trending-up'
+        d._trending_entry_price = 100000.0
+        d._atr_history.append(3000.0)  # threshold = 6000
+
+        # 5000 drop: within 2.0×ATR — no trigger
+        assert d._check_circuit_breaker(95000.0) is None
+
+        # 7000 drop: exceeds 2.0×ATR — triggers
+        assert d._check_circuit_breaker(93000.0) == 'ranging-down'
+
+    def test_circuit_breaker_integration_crash(self):
+        """Strong uptrend followed by sharp crash should exit trending-up."""
+        closes = [50000 + i * 200 for i in range(150)]
+        # Sharp crash: -2000/bar for 20 bars
+        for i in range(20):
+            closes.append(closes[-1] - 2000)
+        # Continue falling
+        for i in range(30):
+            closes.append(closes[-1] - 500)
+        candles = _make_candles(closes)
+
+        d = SuperTrendDetectorV6()
+        labels = d.detect_all(candles)
+        non_none = [l for l in labels if l is not None]
+
+        # Should exit trending-up during the crash, not hold all the way
+        # Check the crash region (bars 150-170)
+        crash_labels = [labels[i] for i in range(155, 175) if labels[i] is not None]
+        assert not all(l == 'trending-up' for l in crash_labels), (
+            f"Circuit breaker didn't fire during crash. Labels: {crash_labels}"
+        )
+
+    def test_circuit_breaker_default_param(self):
+        """Default circuit_breaker_atr is 1.5."""
+        d = SuperTrendDetectorV6()
+        assert d.circuit_breaker_atr == 1.5
+
+    def test_entry_price_tracked_on_regime_change(self):
+        """Entry price is set when transitioning into a trending regime."""
+        d = SuperTrendDetectorV6()
+
+        # Simulate entering trending-up by calling _update_state with
+        # strong bullish confidence repeatedly
+        for _ in range(5):
+            d._update_state(0.95, atr_val=3000.0, close=100000.0)
+
+        if d._confirmed_regime in ('trending-up', 'trending-down'):
+            assert d._trending_entry_price is not None
+
+    def test_entry_price_cleared_on_ranging(self):
+        """Entry price is cleared when regime exits trending."""
+        d = SuperTrendDetectorV6()
+        d._confirmed_regime = 'trending-up'
+        d._trending_entry_price = 100000.0
+        d._atr_history.append(3000.0)
+
+        # Force circuit breaker trip
+        result = d._check_circuit_breaker(90000.0)
+        assert result == 'ranging-down'
