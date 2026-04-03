@@ -72,12 +72,13 @@ EXPECTED_TOOLS = [
     "read_strategy",
     "list_strategies",
     "detector_preview",
+    "import_candles",
 ]
 
 
 class TestToolRegistration:
-    def test_all_seven_tools_registered(self):
-        """Spec §1: all 7 tools must be registered."""
+    def test_all_tools_registered(self):
+        """Spec §1: all 8 tools must be registered."""
         names = _get_tool_names()
         for tool_name in EXPECTED_TOOLS:
             assert tool_name in names, f"Tool '{tool_name}' not registered. Found: {names}"

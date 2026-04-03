@@ -83,3 +83,28 @@ async def wait_for_session(
             raise RuntimeError(f"Backtest failed: {exception}")
 
     raise TimeoutError(f"Backtest timed out after {int(timeout)}s")
+
+
+async def wait_for_import(
+    client: httpx.AsyncClient,
+    session_id: str,
+    token: str,
+    poll_interval: float = 5.0,
+    timeout: float = 600.0,
+) -> None:
+    """Poll until a candle import finishes (disappears from active workers).
+
+    Raises TimeoutError if the import doesn't finish within the timeout.
+    """
+    elapsed = 0.0
+    while elapsed < timeout:
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+
+        data = await api_post(client, "/system/active-workers", token)
+        active = data.get("data", [])
+
+        if session_id not in active:
+            return
+
+    raise TimeoutError(f"Candle import timed out after {int(timeout)}s")

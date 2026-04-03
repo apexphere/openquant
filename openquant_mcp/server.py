@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 from mcp.server import FastMCP
 
-from openquant_mcp.jesse_client import api_post, authenticate, wait_for_session
+from openquant_mcp.jesse_client import api_post, authenticate, wait_for_import, wait_for_session
 from openquant_mcp.trade_mapper import extract_summary, map_trades
 
 mcp = FastMCP("openquant")
@@ -396,3 +396,39 @@ async def detector_preview(
         return str(e)
     except Exception as e:
         return f"Detector error: {e}"
+
+
+@mcp.tool()
+async def import_candles(
+    symbol: str,
+    start: str,
+    exchange: str = "Bybit USDT Perpetual",
+) -> str:
+    """Import historical candle data from an exchange. Polls until complete."""
+    try:
+        async with httpx.AsyncClient() as client:
+            token = await authenticate(client)
+            session_id = str(__import__("uuid").uuid4())
+
+            payload = {
+                "id": session_id,
+                "exchange": exchange,
+                "symbol": symbol,
+                "start_date": start,
+            }
+            await api_post(client, "/candles/import", token, payload)
+            await wait_for_import(client, session_id, token)
+
+            return json.dumps({
+                "status": "completed",
+                "symbol": symbol,
+                "start": start,
+                "exchange": exchange,
+                "message": f"Import complete for {symbol} from {start}. Ready for backtest.",
+            })
+    except ConnectionError as e:
+        return str(e)
+    except TimeoutError as e:
+        return str(e)
+    except Exception as e:
+        return f"Import error: {e}"
