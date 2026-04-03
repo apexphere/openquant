@@ -1,6 +1,5 @@
 """OpenQuant MCP server — 7 tools for strategy development via Claude."""
 
-import asyncio
 import json
 import re
 import uuid
@@ -316,42 +315,45 @@ async def optimize(
         return f"Optimization error: {e}"
 
 
-async def _git_commit_strategy(file_path: Path, name: str, session_id: str | None = None) -> str | None:
-    """Stage and commit a strategy file. Returns short hash or None on failure."""
-    try:
-        msg = f"strategy: {name}"
-        if session_id:
-            msg += f" (session {session_id})"
+VERSIONS_DIR = Path.home() / ".trading-harness" / "strategy-versions"
 
-        add = await asyncio.create_subprocess_exec(
-            "git", "add", str(file_path),
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-        )
-        await add.wait()
-        if add.returncode != 0:
-            return None
 
-        commit = await asyncio.create_subprocess_exec(
-            "git", "commit", "-m", msg, "--", str(file_path),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, _ = await commit.communicate()
-        if commit.returncode != 0:
-            return None
+def _record_version(name: str, code: str, session_id: str | None) -> tuple[str, str | None]:
+    """Append a version entry to the JSONL log. Returns (version, previous_version)."""
+    import time
 
-        rev = await asyncio.create_subprocess_exec(
-            "git", "rev-parse", "--short", "HEAD",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-        )
-        out, _ = await rev.communicate()
-        return out.decode().strip() if rev.returncode == 0 else None
-    except Exception:
-        return None
+    VERSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = VERSIONS_DIR / f"{name}.jsonl"
+
+    # Count existing versions to determine next version number
+    prev_version = None
+    version_num = 1
+    if log_path.exists():
+        lines = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        version_num = len(lines) + 1
+        if lines:
+            try:
+                prev_version = json.loads(lines[-1]).get("version")
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+    version = f"v{version_num}"
+    entry = {
+        "version": version,
+        "timestamp": time.time(),
+        "session_id": session_id,
+        "code": code,
+    }
+
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+    return version, prev_version
 
 
 @mcp.tool()
 async def write_strategy(name: str, code: str, session_id: str = "") -> str:
-    """Write or overwrite a strategy file and commit to git."""
+    """Write or overwrite a strategy file with version tracking."""
     if not _is_valid_strategy_name(name):
         return f"Invalid strategy name: {name}"
 
@@ -361,12 +363,13 @@ async def write_strategy(name: str, code: str, session_id: str = "") -> str:
         file_path = strategy_dir / "__init__.py"
         file_path.write_text(code, encoding="utf-8")
 
-        commit_hash = await _git_commit_strategy(file_path, name, session_id or None)
+        version, prev_version = _record_version(name, code, session_id or None)
 
         return json.dumps({
             "status": "ok",
             "file_path": str(file_path),
-            "commit": commit_hash,
+            "version": version,
+            "previous_version": prev_version,
         })
     except Exception as e:
         return f"Failed to write strategy: {e}"
