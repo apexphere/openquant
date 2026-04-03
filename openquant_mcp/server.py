@@ -1,5 +1,6 @@
 """OpenQuant MCP server — 7 tools for strategy development via Claude."""
 
+import asyncio
 import json
 import re
 import uuid
@@ -315,9 +316,42 @@ async def optimize(
         return f"Optimization error: {e}"
 
 
+async def _git_commit_strategy(file_path: Path, name: str, session_id: str | None = None) -> str | None:
+    """Stage and commit a strategy file. Returns short hash or None on failure."""
+    try:
+        msg = f"strategy: {name}"
+        if session_id:
+            msg += f" (session {session_id})"
+
+        add = await asyncio.create_subprocess_exec(
+            "git", "add", str(file_path),
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await add.wait()
+        if add.returncode != 0:
+            return None
+
+        commit = await asyncio.create_subprocess_exec(
+            "git", "commit", "-m", msg, "--", str(file_path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await commit.communicate()
+        if commit.returncode != 0:
+            return None
+
+        rev = await asyncio.create_subprocess_exec(
+            "git", "rev-parse", "--short", "HEAD",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await rev.communicate()
+        return out.decode().strip() if rev.returncode == 0 else None
+    except Exception:
+        return None
+
+
 @mcp.tool()
-async def write_strategy(name: str, code: str) -> str:
-    """Write or overwrite a strategy file."""
+async def write_strategy(name: str, code: str, session_id: str = "") -> str:
+    """Write or overwrite a strategy file and commit to git."""
     if not _is_valid_strategy_name(name):
         return f"Invalid strategy name: {name}"
 
@@ -327,9 +361,12 @@ async def write_strategy(name: str, code: str) -> str:
         file_path = strategy_dir / "__init__.py"
         file_path.write_text(code, encoding="utf-8")
 
+        commit_hash = await _git_commit_strategy(file_path, name, session_id or None)
+
         return json.dumps({
             "status": "ok",
             "file_path": str(file_path),
+            "commit": commit_hash,
         })
     except Exception as e:
         return f"Failed to write strategy: {e}"
