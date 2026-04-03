@@ -77,6 +77,20 @@ async def wait_for_session(
         status = session.get("status", "unknown")
 
         if status == "finished":
+            # Guard against transaction timing: metrics may report trades
+            # before the trades array is visible in the session row.
+            total = session.get("metrics", {}).get("total", 0)
+            has_trades = bool(session.get("trades"))
+            if total > 0 and not has_trades:
+                for _ in range(3):
+                    await asyncio.sleep(2)
+                    retry_data = await api_post(
+                        client, f"/backtest/sessions/{session_id}", token
+                    )
+                    retry_session = retry_data.get("session", {})
+                    if bool(retry_session.get("trades")):
+                        return retry_session
+                # Trades still missing — return best data we have
             return session
         if status in ("stopped", "terminated"):
             exception = session.get("exception", "unknown error")

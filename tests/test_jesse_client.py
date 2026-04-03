@@ -192,3 +192,105 @@ class TestWaitForSession:
 
         assert result["status"] == "finished"
         assert client.post.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# wait_for_session — trades consistency (regression: issue #10)
+# ---------------------------------------------------------------------------
+
+class TestWaitForSessionTradesRetry:
+    """Regression tests for the missing-trades bug.
+
+    When a session finishes with metrics.total > 0 but trades=[], the client
+    should retry before returning, to guard against transaction timing issues.
+    """
+
+    def _make_session(self, status="finished", total=0, trades=None):
+        return {
+            "session": {
+                "status": status,
+                "metrics": {"total": total},
+                "trades": trades or [],
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_retries_when_trades_missing_then_populated(self):
+        """First poll returns finished with trades=[] but total=7.
+        Retry polls should fetch again and return the session WITH trades."""
+        fake_trades = [{"id": f"t{i}"} for i in range(7)]
+
+        # Initial poll: finished, trades missing
+        first_response = self._make_session(status="finished", total=7, trades=[])
+        # Retry responses: first retry still empty, second has trades
+        retry_empty = self._make_session(status="finished", total=7, trades=[])
+        retry_full = self._make_session(status="finished", total=7, trades=fake_trades)
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.post.side_effect = [
+            _mock_response(200, first_response, text=str(first_response)),
+            _mock_response(200, retry_empty, text=str(retry_empty)),
+            _mock_response(200, retry_full, text=str(retry_full)),
+        ]
+
+        with patch("openquant_mcp.jesse_client.asyncio.sleep", new_callable=AsyncMock):
+            result = await wait_for_session(
+                client, "sess-retry", "tok", poll_interval=0.01, timeout=30,
+            )
+
+        assert len(result["trades"]) == 7
+        # 1 initial poll + 2 retries
+        assert client.post.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_trades_present(self):
+        """When trades are already present on first finished poll, no retry needed."""
+        fake_trades = [{"id": "t1"}, {"id": "t2"}]
+        session = self._make_session(status="finished", total=2, trades=fake_trades)
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.post.return_value = _mock_response(200, session, text=str(session))
+
+        with patch("openquant_mcp.jesse_client.asyncio.sleep", new_callable=AsyncMock):
+            result = await wait_for_session(
+                client, "sess-ok", "tok", poll_interval=0.01, timeout=30,
+            )
+
+        assert len(result["trades"]) == 2
+        # Only 1 call — no retries
+        assert client.post.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_zero_trades_expected(self):
+        """When total=0 and trades=[], that's a legitimate zero-trade session."""
+        session = self._make_session(status="finished", total=0, trades=[])
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.post.return_value = _mock_response(200, session, text=str(session))
+
+        with patch("openquant_mcp.jesse_client.asyncio.sleep", new_callable=AsyncMock):
+            result = await wait_for_session(
+                client, "sess-zero", "tok", poll_interval=0.01, timeout=30,
+            )
+
+        assert result["trades"] == []
+        assert client.post.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_retries_exhausted_returns_best_data(self):
+        """If all retries still have empty trades, return the session anyway."""
+        session = self._make_session(status="finished", total=3, trades=[])
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.post.return_value = _mock_response(200, session, text=str(session))
+
+        with patch("openquant_mcp.jesse_client.asyncio.sleep", new_callable=AsyncMock):
+            result = await wait_for_session(
+                client, "sess-exhaust", "tok", poll_interval=0.01, timeout=30,
+            )
+
+        # Returns even though trades are empty — retries exhausted
+        assert result["trades"] == []
+        assert result["metrics"]["total"] == 3
+        # 1 initial + 3 retries (the retry loop does 3 attempts)
+        assert client.post.call_count == 4

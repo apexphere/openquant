@@ -356,3 +356,103 @@ class TestBacktestResultFile:
         parsed_result = json.loads(result)
         assert parsed_result["session_id"] == "test-sess-1"
         assert "total_trades" in parsed_result or "sharpe" in parsed_result
+
+
+# ---------------------------------------------------------------------------
+# Backtest trades consistency (regression: issue #10)
+# ---------------------------------------------------------------------------
+
+class TestBacktestTradesConsistency:
+    """Regression tests: result file trades must match summary.total_trades."""
+
+    def _fake_trade(self, trade_id: str) -> dict:
+        return {
+            "id": trade_id,
+            "opened_at": 1719792000000,
+            "closed_at": 1719878400000,
+            "symbol": "BTC-USDT",
+            "type": "long",
+            "entry_price": 65000.0,
+            "exit_price": 66000.0,
+            "qty": 0.01,
+            "PNL": 10.0,
+            "PNL_percentage": 1.5,
+            "fee": 0.5,
+            "exit_trace": {"regime_at_exit": "bullish"},
+        }
+
+    @pytest.mark.asyncio
+    async def test_backtest_result_file_trades_match_summary(self, tmp_path, monkeypatch):
+        """Result file must have summary.total_trades == len(trades)."""
+        try:
+            import openquant_mcp.server as srv
+            from openquant_mcp.server import backtest
+        except ImportError:
+            pytest.skip("server module not importable")
+
+        results_dir = tmp_path / "backtest-results"
+        results_dir.mkdir(parents=True)
+        monkeypatch.setattr(srv, "RESULT_DIR", results_dir)
+
+        trades = [self._fake_trade(f"t{i}") for i in range(5)]
+        fake_session = {
+            "status": "finished",
+            "metrics": {"total": 5, "sharpe_ratio": 1.0, "win_rate": 0.6,
+                        "max_drawdown": -3.0, "net_profit_percentage": 5.0},
+            "trades": trades,
+            "regime_periods": [],
+        }
+
+        with patch("openquant_mcp.server.authenticate", new_callable=AsyncMock, return_value="tok"), \
+             patch("openquant_mcp.server.api_post", new_callable=AsyncMock), \
+             patch("openquant_mcp.server.wait_for_session", new_callable=AsyncMock, return_value=fake_session):
+
+            result = await backtest(
+                strategy="TestStrat", start="2025-06-01", finish="2025-09-30",
+                session_id="consistency-5",
+            )
+
+        result_file = results_dir / "consistency-5.json"
+        assert result_file.exists()
+        data = json.loads(result_file.read_text())
+
+        assert data["summary"]["total_trades"] == 5
+        assert len(data["trades"]) == 5
+        assert data["summary"]["total_trades"] == len(data["trades"])
+
+    @pytest.mark.asyncio
+    async def test_backtest_warns_on_empty_trades_with_nonzero_total(self, tmp_path, monkeypatch):
+        """When retries are exhausted and trades still empty, response must include a warning."""
+        try:
+            import openquant_mcp.server as srv
+            from openquant_mcp.server import backtest
+        except ImportError:
+            pytest.skip("server module not importable")
+
+        results_dir = tmp_path / "backtest-results"
+        results_dir.mkdir(parents=True)
+        monkeypatch.setattr(srv, "RESULT_DIR", results_dir)
+
+        # Simulate retries exhausted: wait_for_session returns session with
+        # metrics.total=3 but trades=[]
+        fake_session = {
+            "status": "finished",
+            "metrics": {"total": 3, "sharpe_ratio": 0.5, "win_rate": 0.4,
+                        "max_drawdown": -2.0, "net_profit_percentage": 1.0},
+            "trades": [],
+            "regime_periods": [],
+        }
+
+        with patch("openquant_mcp.server.authenticate", new_callable=AsyncMock, return_value="tok"), \
+             patch("openquant_mcp.server.api_post", new_callable=AsyncMock), \
+             patch("openquant_mcp.server.wait_for_session", new_callable=AsyncMock, return_value=fake_session):
+
+            result = await backtest(
+                strategy="TestStrat", start="2025-06-01", finish="2025-09-30",
+                session_id="warn-empty",
+            )
+
+        parsed = json.loads(result)
+        assert "warning" in parsed
+        assert "missing" in parsed["warning"].lower() or "trades" in parsed["warning"].lower()
+        assert parsed["total_trades"] == 3

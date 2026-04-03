@@ -2,6 +2,7 @@
 
 import json
 import re
+import uuid
 from pathlib import Path
 
 import httpx
@@ -178,10 +179,12 @@ async def backtest(
         async with httpx.AsyncClient() as client:
             token = await authenticate(client)
 
-            payload = _backtest_payload(session_id, strategy, symbol, timeframe, start, finish)
+            # Jesse DB requires UUID; use provided session_id only for result file
+            jesse_id = str(uuid.uuid4())
+            payload = _backtest_payload(jesse_id, strategy, symbol, timeframe, start, finish)
             await api_post(client, "/backtest", token, payload)
 
-            session = await wait_for_session(client, session_id, token)
+            session = await wait_for_session(client, jesse_id, token)
 
             metrics = session.get("metrics", {})
             summary = extract_summary(metrics)
@@ -194,7 +197,7 @@ async def backtest(
                 summary, trades, regime_periods,
             )
 
-            return json.dumps({
+            response = {
                 "session_id": session_id,
                 "total_trades": summary["total_trades"],
                 "sharpe": summary["sharpe"],
@@ -202,7 +205,10 @@ async def backtest(
                 "win_rate": summary["win_rate"],
                 "max_drawdown": summary["max_drawdown"],
                 "result_file": str(result_path),
-            })
+            }
+            if summary["total_trades"] > 0 and len(trades) == 0:
+                response = {**response, "warning": "Trades data missing from session despite metrics reporting trades. Result file may be incomplete."}
+            return json.dumps(response)
     except ConnectionError as e:
         return str(e)
     except TimeoutError as e:
