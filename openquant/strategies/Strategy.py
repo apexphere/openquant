@@ -91,6 +91,7 @@ class Strategy(ABC):
         self._regime_log: list = []  # [{timestamp, regime}] for dashboard overlay
         self._quality_filters: list | None = None  # lazily loaded from quality_filters()
         self._last_quality_score: float | None = None  # most recent aggregate score
+        self._decision_trace: dict | None = None  # entry trace for current trade decision
 
         self._cached_methods = {}
         self._cached_metrics = {}
@@ -1317,11 +1318,29 @@ class Strategy(ABC):
                 )
 
             if _should_long:
+                self._decision_trace = self._build_entry_trace(behavior, 'long')
                 self._store_quality_on_trade()
                 self._execute_long()
             elif _should_short:
+                self._decision_trace = self._build_entry_trace(behavior, 'short')
                 self._store_quality_on_trade()
                 self._execute_short()
+
+    def _build_entry_trace(self, behavior, direction: str) -> dict:
+        """Build entry decision trace at the moment a trade is triggered."""
+        trace = {
+            'regime': self._current_regime,
+            'behavior': type(behavior).__name__ if behavior else None,
+            'direction': direction,
+            'price': self.price,
+            'timestamp': jh.now_to_timestamp(),
+        }
+        if behavior is not None and hasattr(behavior, 'trace'):
+            try:
+                trace['indicators'] = behavior.trace(self)
+            except Exception:
+                pass
+        return trace
 
     def _store_quality_on_trade(self) -> None:
         """Persist the quality score on the current trade for analysis."""

@@ -1,0 +1,120 @@
+# TrendFadeV2 — symmetric trend pullback for crypto futures
+#
+# Thesis: "Exploit pullbacks in both directions, fade ranges"
+# Detector: SuperTrend V7 (3-regime: bullish/bearish/ranging)
+# Bullish: trend_pullback — long dips in confirmed uptrends
+# Bearish: trend_pullback_short — short rallies in confirmed downtrends
+# Ranging: bb_mean_reversion — fade BB extremes in sideways markets
+#
+# Key difference from TrendFade V1: symmetric (no null regimes on futures)
+# Structural filters: EMA spread gate, BB band width gate
+#
+# Asset: BTC-USDT on Bybit USDT Perpetual
+
+detector:
+  type: supertrend_v7
+  params:
+    st_period: 10
+    st_factor: 3.0
+    adx_period: 14
+    chop_period: 14
+    trend_sma_period: 100
+    timeframe: '1D'
+    alpha: 0.3
+    alpha_boost: 0.6
+    strong_entry: 0.70
+    strong_exit: 0.55
+    weak_entry: 0.40
+    weak_exit: 0.35
+    circuit_breaker_atr: 1.5
+
+regimes:
+  bullish: trend_pullback
+  bearish: trend_pullback_short
+  ranging: micro_trend  # ride micro-trends within ranges (same pullback logic, faster scale)
+  cold-start: null
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 8
+
+data_routes: [1D, 4h]
+
+params:
+  # Pullback timeframe — must match data_routes
+  pb_timeframe: '4h'
+
+  # Trend pullback entry (long in bullish, short in bearish)
+  pb_fast_ema:
+    default: 13
+    min: 8
+    max: 21
+  pb_slow_ema:
+    default: 34
+    min: 20
+    max: 55
+  pb_rsi_period:
+    default: 14
+    min: 7
+    max: 21
+  pb_rsi_max:
+    default: 55
+    min: 40
+    max: 70
+  pb_atr_period:
+    default: 14
+    min: 7
+    max: 21
+  pb_atr_sl_mult:
+    default: 2.0
+    min: 1.0
+    max: 4.0
+  pb_min_ema_spread:
+    default: 0.3
+    min: 0.1
+    max: 1.0
+
+  # Micro-trend following (ranging regime — ride mini-trends within the range)
+  mt_timeframe: '4h'
+  mt_fast_ema:
+    default: 8
+    min: 5
+    max: 13
+  mt_slow_ema:
+    default: 21
+    min: 13
+    max: 34
+  mt_rsi_period:
+    default: 14
+    min: 7
+    max: 21
+  mt_rsi_max:
+    default: 65
+    min: 55
+    max: 75
+  mt_rsi_min:
+    default: 35
+    min: 25
+    max: 45
+  mt_atr_period:
+    default: 14
+    min: 7
+    max: 21
+  mt_atr_sl_mult:
+    default: 1.5
+    min: 0.75
+    max: 3.0
+  mt_min_ema_spread:
+    default: 0.1
+    min: 0.05
+    max: 0.5
+
+  # Shared risk / position sizing
+  risk_pct:
+    default: 0.05
+    min: 0.01
+    max: 0.15
+  trail_pct:
+    default: 0.03
+    min: 0.01
+    max: 0.08

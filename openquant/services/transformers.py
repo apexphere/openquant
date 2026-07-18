@@ -4,6 +4,7 @@ from openquant.models.OptimizationSession import OptimizationSession
 from openquant.models.BacktestSession import BacktestSession
 from openquant.models.MonteCarloSession import MonteCarloSession
 from openquant.models.LiveSession import LiveSession
+from openquant.models.ResearchNote import ResearchNote
 from openquant.models.Order import Order
 from openquant.enums import live_session_statuses
 from openquant.repositories import order_repository, live_session_repository
@@ -53,6 +54,25 @@ def get_notification_api_key(api_key: NotificationApiKeys, protect_sensitive_dat
             result[key] = value
 
     return result
+
+
+def get_research_note(note: ResearchNote) -> dict:
+    return {
+        'id': str(note.id),
+        'session_id': str(note.session_id) if note.session_id else None,
+        'session_type': note.session_type,
+        'strategy_name': note.strategy_name,
+        'round_number': note.round_number,
+        'hypothesis': note.hypothesis,
+        'result_summary': note.result_summary,
+        'regime_quality': note.regime_quality,
+        'diagnosis': note.diagnosis,
+        'next_steps': note.next_steps,
+        'tags': json.loads(note.tags) if note.tags else [],
+        'author': note.author,
+        'created_at': note.created_at,
+        'updated_at': note.updated_at,
+    }
 
 
 def get_optimization_session(session: OptimizationSession) -> dict:

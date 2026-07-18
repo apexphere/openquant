@@ -157,3 +157,26 @@ export interface DetectorTrial {
   params: Record<string, number>;
   score: number | null;
 }
+
+export interface ResearchNote {
+  id: string;
+  session_id: string | null;
+  session_type: string | null;
+  strategy_name: string;
+  round_number: number | null;
+  hypothesis: string | null;
+  result_summary: string | null;
+  regime_quality: string | null;
+  diagnosis: string | null;
+  next_steps: string | null;
+  tags: string[];
+  author: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface StrategyWithNotes {
+  strategy_name: string;
+  note_count: number;
+  last_updated: number;
+}

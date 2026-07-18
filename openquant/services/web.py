@@ -333,3 +333,33 @@ class GetTradesHistoryRequestJson(BaseModel):
 
 class ImportApiKeyRequestJson(BaseModel):
     content: str
+
+
+class CreateResearchNoteRequestJson(BaseModel):
+    session_id: Optional[str] = None
+    session_type: Optional[str] = None
+    strategy_name: Optional[str] = None
+    round_number: Optional[int] = None
+    hypothesis: Optional[str] = None
+    result_summary: Optional[str] = None
+    regime_quality: Optional[str] = None
+    diagnosis: Optional[str] = None
+    next_steps: Optional[str] = None
+    tags: Optional[List[str]] = None
+    author: Optional[str] = 'human'
+
+
+class UpdateResearchNoteRequestJson(BaseModel):
+    hypothesis: Optional[str] = None
+    result_summary: Optional[str] = None
+    regime_quality: Optional[str] = None
+    diagnosis: Optional[str] = None
+    next_steps: Optional[str] = None
+    tags: Optional[List[str]] = None
+    round_number: Optional[int] = None
+    author: Optional[str] = None
+
+
+class GetResearchNotesRequestJson(BaseModel):
+    limit: int = 50
+    offset: int = 0

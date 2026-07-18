@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useBacktestSession, useChartData } from "@/hooks/use-backtest";
+import { useSessionResearchNotes } from "@/hooks/use-research-notes";
+import { createResearchNote } from "@/lib/api";
 import { StatCard } from "@/components/stat-card";
 import { RegimeTimeline } from "@/components/regime-timeline";
-import type { BacktestSessionDetail, Trade } from "@/lib/types";
+import type { BacktestSessionDetail, Trade, ResearchNote } from "@/lib/types";
 
 function formatPnl(value: number | null | undefined): string {
   if (value == null) return "--";
@@ -67,6 +70,7 @@ export default function BacktestDetailPage() {
   const { data: chartData } = useChartData(
     session?.has_chart_data ? id : null
   );
+  const { data: notes, mutate: mutateNotes } = useSessionResearchNotes(id);
 
   if (isLoading) {
     return (
@@ -295,6 +299,225 @@ export default function BacktestDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Research Notes */}
+      <ResearchNotesPanel
+        sessionId={id ?? ""}
+        strategyName={getStrategyName(session)}
+        notes={notes ?? []}
+        onNoteCreated={() => mutateNotes()}
+      />
+    </div>
+  );
+}
+
+function ResearchNotesPanel({
+  sessionId,
+  strategyName,
+  notes,
+  onNoteCreated,
+}: {
+  sessionId: string;
+  strategyName: string;
+  notes: ResearchNote[];
+  onNoteCreated: () => void;
+}) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [hypothesis, setHypothesis] = useState("");
+  const [diagnosis, setDiagnosis] = useState("");
+  const [nextSteps, setNextSteps] = useState("");
+  const [resultSummary, setResultSummary] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await createResearchNote({
+        session_id: sessionId,
+        strategy_name: strategyName,
+        hypothesis: hypothesis || undefined,
+        result_summary: resultSummary || undefined,
+        diagnosis: diagnosis || undefined,
+        next_steps: nextSteps || undefined,
+        author: "human",
+      });
+      setHypothesis("");
+      setDiagnosis("");
+      setNextSteps("");
+      setResultSummary("");
+      setIsAdding(false);
+      onNoteCreated();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function formatNoteDate(ts: number): string {
+    if (ts > 1e12) {
+      return new Date(ts).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+    return "?";
+  }
+
+  return (
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[13px] font-semibold text-[var(--text-heading)]">
+          Research Notes ({notes.length})
+        </div>
+        {!isAdding && (
+          <button
+            onClick={() => setIsAdding(true)}
+            className="text-xs text-[var(--blue)] hover:underline"
+          >
+            + Add Note
+          </button>
+        )}
+      </div>
+
+      {/* Add note form */}
+      {isAdding && (
+        <div className="border border-[var(--border)] rounded-lg p-3 mb-3 space-y-2">
+          <NoteField
+            label="Hypothesis"
+            value={hypothesis}
+            onChange={setHypothesis}
+            placeholder="What did you expect?"
+          />
+          <NoteField
+            label="Result"
+            value={resultSummary}
+            onChange={setResultSummary}
+            placeholder="PnL, Sharpe, win rate, trades (one line)"
+          />
+          <NoteField
+            label="Diagnosis"
+            value={diagnosis}
+            onChange={setDiagnosis}
+            placeholder="What went wrong (or right) and why?"
+          />
+          <NoteField
+            label="Next Steps"
+            value={nextSteps}
+            onChange={setNextSteps}
+            placeholder="What to try based on this"
+          />
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-xs px-3 py-1.5 bg-[var(--blue)] text-white rounded hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              onClick={() => setIsAdding(false)}
+              className="text-xs px-3 py-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Existing notes */}
+      {notes.length > 0 ? (
+        <div className="space-y-3">
+          {notes.map((note) => (
+            <div
+              key={note.id}
+              className="border border-[var(--border)]/50 rounded p-3"
+            >
+              <div className="flex items-center gap-2 mb-2 text-xs text-[var(--text-secondary)]">
+                <span>Round {note.round_number ?? "?"}</span>
+                <span>&middot;</span>
+                <span>{formatNoteDate(note.created_at)}</span>
+                <span>&middot;</span>
+                <span>{note.author ?? "human"}</span>
+                {note.tags.length > 0 && (
+                  <>
+                    <span>&middot;</span>
+                    {note.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-1.5 py-0.5 bg-[var(--border)] rounded text-[10px]"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </>
+                )}
+              </div>
+              <div className="space-y-1.5 text-xs">
+                {note.hypothesis && (
+                  <NoteRow label="Hypothesis" value={note.hypothesis} />
+                )}
+                {note.result_summary && (
+                  <NoteRow label="Result" value={note.result_summary} />
+                )}
+                {note.regime_quality && (
+                  <NoteRow label="Regime" value={note.regime_quality} />
+                )}
+                {note.diagnosis && (
+                  <NoteRow label="Diagnosis" value={note.diagnosis} />
+                )}
+                {note.next_steps && (
+                  <NoteRow label="Next" value={note.next_steps} />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        !isAdding && (
+          <div className="text-[var(--text-secondary)] text-center py-6 text-sm">
+            No research notes yet. Click &ldquo;+ Add Note&rdquo; or use{" "}
+            <code className="text-xs bg-[var(--border)] px-1 py-0.5 rounded">
+              jesse annotate {sessionId.slice(0, 8)}...
+            </code>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+function NoteField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)] mb-0.5 block">
+        {label}
+      </label>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={2}
+        className="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)]/50 resize-none focus:outline-none focus:border-[var(--blue)]"
+      />
+    </div>
+  );
+}
+
+function NoteRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="text-[var(--text-secondary)]">{label}: </span>
+      <span className="text-[var(--text-primary)]">{value}</span>
     </div>
   );
 }

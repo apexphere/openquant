@@ -1,0 +1,95 @@
+# VolSqueeze -- ATR percentile volatility regime strategy
+#
+# Thesis: catch breakouts after volatility squeezes.
+# High-vol -> breakout (expansion = directional move)
+# Low-vol -> bb_mean_reversion (compressed range = fade extremes)
+# Normal -> trend_follow (moderate conditions = ride the trend)
+# Cold-start -> null (no trading until detector warms up)
+
+detector:
+  type: volatility
+  params:
+    atr_period: 14
+    lookback: 100
+    high_percentile: 85
+    low_percentile: 15
+    confirm_bars: 4
+
+regimes:
+  high-volatility: breakout
+  low-volatility: bb_mean_reversion
+  normal: trend_follow
+  cold-start: null
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 6
+
+data_routes: [1D, 4h]
+
+params:
+  # Breakout behavior (Donchian channel)
+  bo_period:
+    default: 20
+    min: 10
+    max: 40
+  bo_atr_period:
+    default: 14
+    min: 7
+    max: 21
+  bo_atr_sl_mult:
+    default: 2.0
+    min: 1.0
+    max: 4.0
+  bo_timeframe: '4h'
+
+  # BB mean-reversion (low-vol ranges)
+  bb_window:
+    default: 20
+    min: 10
+    max: 30
+  bb_mult:
+    default: 2.0
+    min: 1.5
+    max: 3.0
+  bb_sl_pct:
+    default: 0.02
+    min: 0.005
+    max: 0.05
+  rsi_period:
+    default: 14
+    min: 7
+    max: 21
+  rsi_oversold:
+    default: 30
+    min: 20
+    max: 40
+  rsi_overbought:
+    default: 70
+    min: 60
+    max: 80
+
+  # Trend-follow (normal vol)
+  trend_ma_period:
+    default: 50
+    min: 20
+    max: 100
+  trend_ma_type: 'ema'
+
+  # Shared risk / position sizing
+  risk_pct:
+    default: 0.05
+    min: 0.01
+    max: 0.15
+  trail_pct:
+    default: 0.03
+    min: 0.01
+    max: 0.08
+  sl_pct:
+    default: 0.05
+    min: 0.02
+    max: 0.10
+  tp_pct:
+    default: 0.10
+    min: 0.03
+    max: 0.25

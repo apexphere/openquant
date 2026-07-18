@@ -1,0 +1,49 @@
+# SmaCrossAlignedV2 — direction-aligned + ranging longs
+#
+# V1 finding: baseline's biggest winners were in "ranging" periods.
+# Ranging with trend_strength detector = transitional zones with big moves.
+# Keep direction alignment in trends, add long-only in ranging.
+
+detector:
+  type: trend_strength
+  params:
+    fast_period: 13
+    slow_period: 34
+    separation_pct: 0.5
+    confirm_bars: 2
+
+regimes:
+  trending-up: sma_crossover_long
+  trending-down: sma_crossover_short
+  ranging: sma_crossover_long
+  cold-start: null
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 6
+
+params:
+  sma_fast:
+    default: 20
+    min: 10
+    max: 30
+  sma_slow:
+    default: 50
+    min: 30
+    max: 80
+  atr_period:
+    default: 14
+    min: 10
+    max: 30
+  atr_sl_mult:
+    default: 3.0
+    min: 1.5
+    max: 5.0
+  atr_trail_mult:
+    default: 4.0
+    min: 2.0
+    max: 6.0
+  risk_pct:
+    default: 0.02
+    min: 0.01
+    max: 0.05

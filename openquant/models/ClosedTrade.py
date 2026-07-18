@@ -55,6 +55,9 @@ class ClosedTrade(peewee.Model):
         self.sell_orders = DynamicNumpyArray((10, 2))
         # to store the actual order objects
         self.orders = []
+        # decision traces (populated during backtest, stored in session JSON)
+        self.entry_trace = None
+        self.exit_trace = None
 
     @property
     def to_json(self) -> dict:
@@ -100,6 +103,10 @@ class ClosedTrade(peewee.Model):
     def to_dict_with_orders(self) -> dict:
         data = self.to_dict
         data['orders'] = [order.to_dict for order in self.orders]
+        if getattr(self, 'entry_trace', None):
+            data['entry_trace'] = self.entry_trace
+        if getattr(self, 'exit_trace', None):
+            data['exit_trace'] = self.exit_trace
         return data
 
     @property

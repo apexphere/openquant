@@ -48,3 +48,12 @@ class StrategyBehavior(Protocol):
     def update_position(self, strategy) -> None:
         """Manage an open position (trailing stops, exits, etc.)."""
         ...
+
+    def trace(self, strategy) -> dict:
+        """Return a snapshot of indicator values used in the last decision.
+
+        Called only when a trade opens (not every candle). Return a flat dict
+        of indicator names to values. Optional — behaviors that don't implement
+        this get only regime/price data in the trace.
+        """
+        ...

@@ -41,6 +41,17 @@ class TrendFollowBehavior:
         if tp > 0:
             strategy.take_profit = qty, strategy.price * (1 - tp)
 
+    def trace(self, strategy) -> dict:
+        ma = _get_ma(strategy)
+        return {
+            'ma_type': strategy.hp.get('trend_ma_type', 'ema'),
+            'ma_period': strategy.hp.get('trend_ma_period', 50),
+            'ma_value': round(float(ma), 2),
+            'price_vs_ma_pct': round(
+                (strategy.price - float(ma)) / float(ma) * 100, 3),
+            'price_above_ma': bool(float(strategy.price) > float(ma)),
+        }
+
     def update_position(self, strategy) -> None:
         trail_pct = strategy.hp.get('trail_pct', 0)
         if trail_pct <= 0:

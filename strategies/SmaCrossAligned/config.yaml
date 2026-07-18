@@ -1,0 +1,58 @@
+# SmaCrossAligned — SMA 20/50 crossover direction-aligned with regime
+#
+# Key insight: SmaCrossRegime lost -13% on counter-trend trades
+# (shorts in uptrends, longs in downtrends). This variant aligns
+# trade direction with detected regime.
+#
+# Trending-up: long only (golden cross entry, death cross exit)
+# Trending-down: short only (death cross entry, golden cross exit)
+# Ranging: flat
+
+detector:
+  type: trend_strength
+  params:
+    fast_period: 13
+    slow_period: 34
+    separation_pct: 0.5
+    confirm_bars: 2
+
+regimes:
+  trending-up: sma_crossover_long
+  trending-down: sma_crossover_short
+  ranging: null
+  cold-start: null
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 6
+
+params:
+  # SMA crossover
+  sma_fast:
+    default: 20
+    min: 10
+    max: 30
+  sma_slow:
+    default: 50
+    min: 30
+    max: 80
+
+  # ATR-based risk management
+  atr_period:
+    default: 14
+    min: 10
+    max: 30
+  atr_sl_mult:
+    default: 3.0
+    min: 1.5
+    max: 5.0
+  atr_trail_mult:
+    default: 4.0
+    min: 2.0
+    max: 6.0
+
+  # Position sizing
+  risk_pct:
+    default: 0.02
+    min: 0.01
+    max: 0.05

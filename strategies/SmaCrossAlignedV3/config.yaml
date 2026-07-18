@@ -1,0 +1,43 @@
+# SmaCrossAlignedV3 — supertrend_v7 detector + direction-aligned SMA crossover
+#
+# Hypothesis: trend_strength detector labels big-move zones as "ranging",
+# causing missed trades. SuperTrend V7 (confidence-based, 3-regime) should
+# detect trends earlier and reduce entry lag.
+
+detector:
+  type: supertrend_v7
+
+regimes:
+  bullish: sma_crossover_long
+  bearish: sma_crossover_short
+  ranging: sma_crossover_long
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 6
+
+params:
+  sma_fast:
+    default: 20
+    min: 10
+    max: 30
+  sma_slow:
+    default: 50
+    min: 30
+    max: 80
+  atr_period:
+    default: 14
+    min: 10
+    max: 30
+  atr_sl_mult:
+    default: 3.0
+    min: 1.5
+    max: 5.0
+  atr_trail_mult:
+    default: 4.0
+    min: 2.0
+    max: 6.0
+  risk_pct:
+    default: 0.02
+    min: 0.01
+    max: 0.05

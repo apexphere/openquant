@@ -1,0 +1,52 @@
+# SmaCross2050E — SMA 20/50 crossover in bullish regime only
+#
+# V7 SuperTrend detector gates entries: only trade during confirmed bullish.
+# Bullish: SMA crossover (long only)
+# Bearish: flat
+# Ranging: flat
+#
+# Key change from SmaCrossRegime: uses supertrend_v7 detector (confidence-based,
+# 3-regime model) instead of trend_strength (lagging EMA crossover).
+
+detector:
+  type: supertrend_v7
+
+regimes:
+  bullish: sma_crossover_long
+  bearish: null
+  ranging: null
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 6
+
+params:
+  # SMA crossover
+  sma_fast:
+    default: 20
+    min: 10
+    max: 30
+  sma_slow:
+    default: 50
+    min: 30
+    max: 80
+
+  # ATR-based risk management
+  atr_period:
+    default: 14
+    min: 10
+    max: 30
+  atr_sl_mult:
+    default: 3.0
+    min: 1.5
+    max: 5.0
+  atr_trail_mult:
+    default: 4.0
+    min: 2.0
+    max: 6.0
+
+  # Position sizing
+  risk_pct:
+    default: 0.02
+    min: 0.01
+    max: 0.05

@@ -8,6 +8,7 @@ const links = [
   { href: "/optimization", label: "Optimization" },
   { href: "/detector-optimization", label: "Detectors" },
   { href: "/detector-viewer", label: "Viewer" },
+  { href: "/research", label: "Research" },
   { href: "/compare", label: "Compare" },
   { href: "/data", label: "Data" },
 ];

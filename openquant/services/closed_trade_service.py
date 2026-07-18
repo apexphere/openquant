@@ -65,6 +65,12 @@ def open_trade(position, p_orders: list = None) -> None:
     t.symbol = position.symbol
     t.type = position.type
     t.session_id = store.app.session_id
+    # Copy decision trace from strategy onto the trade
+    if hasattr(position, 'strategy') and position.strategy is not None:
+        trace = getattr(position.strategy, '_decision_trace', None)
+        if trace is not None:
+            t.entry_trace = trace
+            position.strategy._decision_trace = None
     if jh.is_live() or jh.is_paper_trading():
         closed_trade_repository.store_or_update(t)
     if p_orders:
@@ -86,6 +92,7 @@ def close_trade(position: Position) -> None:
         return
 
     t.closed_at = position.closed_at
+    t.exit_trace = _build_exit_trace(t, position)
     try:
         position.strategy.trades_count += 1
     except AttributeError:
@@ -104,3 +111,34 @@ def close_trade(position: Position) -> None:
             f"PNL: {round(t.pnl, 2)} ({round(t.pnl_percentage, 2)}%)"
         )
     store.closed_trades._reset_current_trade(position.exchange_name, position.symbol)
+
+
+def _build_exit_trace(trade, position) -> dict:
+    """Build exit trace from the closing order's submitted_via."""
+    exit_type = 'unknown'
+    for order in reversed(trade.orders):
+        if getattr(order, 'submitted_via', None):
+            exit_type = order.submitted_via
+            break
+
+    # If no submitted_via on exit orders, it was a regime-change liquidation
+    if exit_type == 'unknown':
+        exit_type = 'regime-change'
+
+    trace = {
+        'exit_type': exit_type,
+        'exit_price': trade.exit_price,
+        'timestamp': trade.closed_at,
+    }
+
+    strategy = getattr(position, 'strategy', None)
+    if strategy:
+        trace['regime_at_exit'] = getattr(strategy, '_current_regime', None)
+        behavior = strategy._get_regime_behavior()
+        if behavior and hasattr(behavior, 'trace'):
+            try:
+                trace['indicators'] = behavior.trace(strategy)
+            except Exception:
+                pass
+
+    return trace

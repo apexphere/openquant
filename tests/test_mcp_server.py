@@ -421,8 +421,9 @@ class TestBacktestTradesConsistency:
         assert data["summary"]["total_trades"] == len(data["trades"])
 
     @pytest.mark.asyncio
-    async def test_backtest_warns_on_empty_trades_with_nonzero_total(self, tmp_path, monkeypatch):
-        """When retries are exhausted and trades still empty, response must include a warning."""
+    async def test_backtest_falls_back_to_exported_json(self, tmp_path, monkeypatch):
+        """Issue #10: when session has empty trades but metrics.total > 0,
+        read from the exported JSON file as a fallback."""
         try:
             import openquant_mcp.server as srv
             from openquant_mcp.server import backtest
@@ -433,8 +434,68 @@ class TestBacktestTradesConsistency:
         results_dir.mkdir(parents=True)
         monkeypatch.setattr(srv, "RESULT_DIR", results_dir)
 
-        # Simulate retries exhausted: wait_for_session returns session with
-        # metrics.total=3 but trades=[]
+        # Session has metrics but empty trades
+        fake_session = {
+            "status": "finished",
+            "metrics": {"total": 3, "sharpe_ratio": 0.5, "win_rate": 0.4,
+                        "max_drawdown": -2.0, "net_profit_percentage": 1.0},
+            "trades": [],
+            "regime_periods": [],
+        }
+
+        # Create the exported JSON file that Jesse would have written
+        exported_trades = [self._fake_trade(f"t{i}") for i in range(3)]
+        storage_dir = Path("storage/json")
+        storage_dir.mkdir(parents=True, exist_ok=True)
+
+        # We need to capture the jesse_id used inside the backtest function.
+        # Patch uuid.uuid4 to return a known value.
+        import uuid as _uuid
+        known_uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        exported_path = storage_dir / f"{known_uuid}.json"
+        exported_path.write_text(json.dumps({
+            "trades": exported_trades,
+            "considering_timeframes": ["1m"],
+        }))
+
+        try:
+            with patch("openquant_mcp.server.authenticate", new_callable=AsyncMock, return_value="tok"), \
+                 patch("openquant_mcp.server.api_post", new_callable=AsyncMock), \
+                 patch("openquant_mcp.server.wait_for_session", new_callable=AsyncMock, return_value=fake_session), \
+                 patch("openquant_mcp.server.uuid.uuid4", return_value=_uuid.UUID(known_uuid)):
+
+                result = await backtest(
+                    strategy="TestStrat", start="2025-06-01", finish="2025-09-30",
+                    session_id="fallback-test",
+                )
+
+            parsed = json.loads(result)
+            # Should NOT have a warning — trades were recovered from exported JSON
+            assert "warning" not in parsed
+            assert parsed["trades_source"] == "exported_json"
+            assert parsed["total_trades"] == 3
+
+            # Verify result file has trades
+            result_file = results_dir / "fallback-test.json"
+            data = json.loads(result_file.read_text())
+            assert len(data["trades"]) == 3
+        finally:
+            # Clean up exported file
+            exported_path.unlink(missing_ok=True)
+
+    @pytest.mark.asyncio
+    async def test_backtest_warns_when_no_fallback_available(self, tmp_path, monkeypatch):
+        """When both session and exported JSON have no trades, response must include a warning."""
+        try:
+            import openquant_mcp.server as srv
+            from openquant_mcp.server import backtest
+        except ImportError:
+            pytest.skip("server module not importable")
+
+        results_dir = tmp_path / "backtest-results"
+        results_dir.mkdir(parents=True)
+        monkeypatch.setattr(srv, "RESULT_DIR", results_dir)
+
         fake_session = {
             "status": "finished",
             "metrics": {"total": 3, "sharpe_ratio": 0.5, "win_rate": 0.4,
@@ -445,7 +506,8 @@ class TestBacktestTradesConsistency:
 
         with patch("openquant_mcp.server.authenticate", new_callable=AsyncMock, return_value="tok"), \
              patch("openquant_mcp.server.api_post", new_callable=AsyncMock), \
-             patch("openquant_mcp.server.wait_for_session", new_callable=AsyncMock, return_value=fake_session):
+             patch("openquant_mcp.server.wait_for_session", new_callable=AsyncMock, return_value=fake_session), \
+             patch("openquant_mcp.server._read_exported_trades", return_value=[]):
 
             result = await backtest(
                 strategy="TestStrat", start="2025-06-01", finish="2025-09-30",
@@ -454,5 +516,4 @@ class TestBacktestTradesConsistency:
 
         parsed = json.loads(result)
         assert "warning" in parsed
-        assert "missing" in parsed["warning"].lower() or "trades" in parsed["warning"].lower()
         assert parsed["total_trades"] == 3

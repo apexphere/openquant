@@ -160,6 +160,23 @@ def _write_result_file(
     return path
 
 
+def _read_exported_trades(jesse_id: str) -> list[dict]:
+    """Read trades from Jesse's exported JSON file as a fallback.
+
+    Jesse writes this file during backtest execution (before the DB update),
+    so it is available even if the session API response has empty trades.
+    Returns an empty list if the file doesn't exist or can't be parsed.
+    """
+    json_path = Path(f"storage/json/{jesse_id}.json")
+    if not json_path.exists():
+        return []
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        return data.get("trades", [])
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -189,6 +206,16 @@ async def backtest(
             metrics = session.get("metrics", {})
             summary = extract_summary(metrics)
             raw_trades = session.get("trades", [])
+
+            # Fallback: if session response has empty trades but metrics
+            # report trades > 0, read from the exported JSON file that
+            # Jesse writes during execution (before the DB update).
+            trades_source = "session"
+            if not raw_trades and summary["total_trades"] > 0:
+                raw_trades = _read_exported_trades(jesse_id)
+                if raw_trades:
+                    trades_source = "exported_json"
+
             trades = map_trades(raw_trades)
             regime_periods = session.get("regime_periods", [])
 
@@ -206,8 +233,10 @@ async def backtest(
                 "max_drawdown": summary["max_drawdown"],
                 "result_file": str(result_path),
             }
+            if trades_source == "exported_json":
+                response = {**response, "trades_source": "exported_json"}
             if summary["total_trades"] > 0 and len(trades) == 0:
-                response = {**response, "warning": "Trades data missing from session despite metrics reporting trades. Result file may be incomplete."}
+                response = {**response, "warning": "Trades data missing from both session and exported JSON. Result file may be incomplete."}
             return json.dumps(response)
     except ConnectionError as e:
         return str(e)

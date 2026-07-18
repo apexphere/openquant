@@ -58,6 +58,12 @@ class TrendPullbackShortBehavior:
         if fast_ema[-1] >= slow_ema[-1]:
             return False
 
+        # Minimum trend strength: EMAs must be separated, not converged
+        ema_spread_pct = (float(slow_ema[-1]) - float(fast_ema[-1])) / float(slow_ema[-1]) * 100
+        min_spread = strategy.hp.get('pb_min_ema_spread', 0.3)
+        if ema_spread_pct < min_spread:
+            return False
+
         # Current 4h bar closes below fast EMA (rejection confirmed)
         if candles_4h[-1, 2] >= fast_ema[-1]:
             return False
@@ -85,6 +91,39 @@ class TrendPullbackShortBehavior:
 
         strategy.sell = qty, strategy.price
         strategy.stop_loss = qty, strategy.price + (atr * atr_mult)
+
+    def trace(self, strategy) -> dict:
+        fast_period = strategy.hp.get('pb_fast_ema', 13)
+        slow_period = strategy.hp.get('pb_slow_ema', 34)
+        rsi_period = strategy.hp.get('pb_rsi_period', 14)
+        atr_period = strategy.hp.get('pb_atr_period', 14)
+
+        candles_4h = strategy.get_candles(
+            strategy.exchange, strategy.symbol,
+            strategy.hp.get('pb_timeframe', '4h'))
+
+        fast_ema = ta.ema(candles_4h, period=fast_period, sequential=True)
+        slow_ema = ta.ema(candles_4h, period=slow_period, sequential=True)
+        rsi = ta.rsi(candles_4h, period=rsi_period)
+        atr = ta.atr(candles_4h, period=atr_period)
+
+        ema_spread_pct = round(
+            (float(slow_ema[-1]) - float(fast_ema[-1])) / float(slow_ema[-1]) * 100, 3)
+
+        return {
+            'fast_ema': round(float(fast_ema[-1]), 2),
+            'slow_ema': round(float(slow_ema[-1]), 2),
+            'rsi': round(float(rsi), 2),
+            'atr': round(float(atr), 2),
+            'price_vs_fast_ema_pct': round(
+                (strategy.price - float(fast_ema[-1])) / float(fast_ema[-1]) * 100, 3),
+            'ema_spread_pct': ema_spread_pct,
+            'min_spread_threshold': float(strategy.hp.get('pb_min_ema_spread', 0.3)),
+            'trend_strong_enough': bool(ema_spread_pct >= strategy.hp.get('pb_min_ema_spread', 0.3)),
+            'prev_high_touched_ema': bool(float(candles_4h[-2, 3]) >= float(fast_ema[-2])),
+            'curr_close_below_ema': bool(float(candles_4h[-1, 2]) < float(fast_ema[-1])),
+            'rsi_above_min': bool(float(rsi) >= float(strategy.hp.get('pb_rsi_min', 30))),
+        }
 
     def update_position(self, strategy) -> None:
         if not strategy.is_short:

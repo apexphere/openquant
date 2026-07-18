@@ -73,6 +73,28 @@ class BreakoutBehavior:
         strategy.sell = qty, strategy.price
         strategy.stop_loss = qty, strategy.price + (atr * atr_mult)
 
+    def trace(self, strategy) -> dict:
+        candles = _get_candles(strategy)
+        period = strategy.hp.get('bo_period', 20)
+        atr_period = strategy.hp.get('bo_atr_period', 14)
+
+        upper = float(np.max(candles[-(period + 1):-1, 3]))
+        lower = float(np.min(candles[-(period + 1):-1, 4]))
+        atr = ta.atr(candles, period=atr_period)
+
+        return {
+            'channel_high': round(upper, 2),
+            'channel_low': round(lower, 2),
+            'channel_width_pct': round((upper - lower) / lower * 100, 3),
+            'atr': round(float(atr), 2),
+            'price_vs_high_pct': round(
+                (strategy.price - upper) / upper * 100, 3),
+            'price_vs_low_pct': round(
+                (strategy.price - lower) / lower * 100, 3),
+            'breaking_high': bool(float(strategy.price) > float(upper)),
+            'breaking_low': bool(float(strategy.price) < float(lower)),
+        }
+
     def update_position(self, strategy) -> None:
         trail_pct = strategy.hp.get('trail_pct', 0.03)
         if strategy.is_long:

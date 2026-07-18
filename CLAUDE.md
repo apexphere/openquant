@@ -95,6 +95,64 @@ jesse detector-preview supertrend_v5 --start 2025-01-25 --finish 2026-03-29 \
 jesse detector-preview supertrend_v5 --start 2025-06-01 --finish 2026-03-25 --json-output
 ```
 
+### jesse annotate
+
+```bash
+# Add a research note to a backtest session
+jesse annotate <session-id> --hypothesis "baseline" --diagnosis "detector flickering" --next-steps "raise confirm_bars"
+
+# With tags
+jesse annotate <session-id> --hypothesis "..." --tags "detector-problem,dead-end"
+
+# AI agent workflow (JSON input)
+jesse annotate <session-id> --json-input '{"hypothesis":"...","diagnosis":"..."}' --author agent-name
+
+# Machine-readable
+jesse annotate <session-id> --json-input '{"diagnosis":"..."}' --json-output
+```
+
+### jesse research
+
+```bash
+# Show research timeline for a strategy
+jesse research VolSqueeze
+
+# With limit
+jesse research TrendFade --limit 50
+
+# Machine-readable
+jesse research VolSqueeze --json-output
+```
+
+### jesse analyze-timeframe
+
+```bash
+# Compare indicator values across timeframes for a date range
+jesse analyze-timeframe bb --start 2025-08-23 --finish 2025-09-27
+
+# Specific timeframes and period
+jesse analyze-timeframe rsi --start 2025-06-01 --finish 2025-09-30 --period 14 --timeframes 1h,4h,1D
+
+# Supported indicators: bb, ema, rsi, atr
+jesse analyze-timeframe ema --start 2025-06-01 --finish 2025-09-30
+
+# Machine-readable
+jesse analyze-timeframe bb --start 2025-08-23 --finish 2025-09-27 --json-output
+```
+
+### jesse diagnose
+
+```bash
+# Analyze trades from a backtest session — regime breakdown, exit analysis, decision traces
+jesse diagnose <session-id>
+
+# Show more losers
+jesse diagnose <session-id> --top-n 10
+
+# Machine-readable
+jesse diagnose <session-id> --json-output
+```
+
 ## Strategy Development Workflow
 
 ### Step 1: Write the strategy

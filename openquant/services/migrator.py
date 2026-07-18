@@ -30,10 +30,12 @@ def run():
     _optimization_session(migrator)
     _monte_carlo_session(migrator)
     _backtest_session(migrator)
+    _research_note(migrator)
 
     # create initial tables
     from openquant.models import Candle, ClosedTrade, Log, Order, OpenTab, LiveEquitySnapshot
-    database.db.create_tables([Candle, ClosedTrade, Log, Order, OpenTab, LiveEquitySnapshot])
+    from openquant.models.ResearchNote import ResearchNote
+    database.db.create_tables([Candle, ClosedTrade, Log, Order, OpenTab, LiveEquitySnapshot, ResearchNote])
 
     database.close_connection()
 
@@ -162,6 +164,14 @@ def _backtest_session(migrator):
     if 'backtestsession' in database.db.get_tables():
         backtest_session_columns = database.db.get_columns('backtestsession')
         _migrate(migrator, fields, backtest_session_columns, 'backtestsession')
+
+
+def _research_note(migrator):
+    fields = []
+
+    if 'researchnote' in database.db.get_tables():
+        research_note_columns = database.db.get_columns('researchnote')
+        _migrate(migrator, fields, research_note_columns, 'researchnote')
 
 
 def _migrate(migrator, fields, columns, table):

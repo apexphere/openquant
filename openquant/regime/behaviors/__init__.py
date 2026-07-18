@@ -5,6 +5,8 @@ from openquant.regime.behaviors.trend_pullback import TrendPullbackBehavior
 from openquant.regime.behaviors.trend_pullback_short import TrendPullbackShortBehavior
 from openquant.regime.behaviors.grid import GridBehavior
 from openquant.regime.behaviors.breakout import BreakoutBehavior
+from openquant.regime.behaviors.donchian_mean_reversion import DonchianMeanReversionBehavior
+from openquant.regime.behaviors.micro_trend import MicroTrendBehavior
 
 __all__ = [
     'BBMeanReversionBehavior',
@@ -14,4 +16,6 @@ __all__ = [
     'TrendPullbackShortBehavior',
     'GridBehavior',
     'BreakoutBehavior',
+    'DonchianMeanReversionBehavior',
+    'MicroTrendBehavior',
 ]

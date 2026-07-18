@@ -1,0 +1,66 @@
+# SmaFilterPullback — SMA alignment filter + EMA pullback entry
+#
+# SuperTrend v7 detects bullish regime.
+# Bullish: trend_pullback behavior (EMA 13/34 pullback + RSI filter)
+# Bearish/Ranging: flat
+#
+# Key insight from SMA 20/50 sweep: crossover is too lagging as entry.
+# Use SMA alignment as context, faster EMA pullback as trigger.
+
+detector:
+  type: supertrend_v7
+
+regimes:
+  bullish: trend_pullback
+  bearish: null
+  ranging: null
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 6
+
+params:
+  # EMA pullback entry (4h)
+  pb_fast_ema:
+    default: 13
+    min: 8
+    max: 21
+  pb_slow_ema:
+    default: 34
+    min: 21
+    max: 55
+  pb_rsi_period:
+    default: 14
+    min: 10
+    max: 21
+  pb_rsi_max:
+    default: 70
+    min: 60
+    max: 80
+  pb_min_ema_spread:
+    default: 0.3
+    min: 0.1
+    max: 1.0
+
+  # ATR-based risk management
+  pb_atr_period:
+    default: 14
+    min: 10
+    max: 30
+  pb_atr_sl_mult:
+    default: 2.0
+    min: 1.5
+    max: 4.0
+
+  # Position sizing and trailing
+  risk_pct:
+    default: 0.05
+    min: 0.02
+    max: 0.10
+  trail_pct:
+    default: 0.03
+    min: 0.02
+    max: 0.06
+
+  # Fixed params
+  pb_timeframe: '4h'
