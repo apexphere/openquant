@@ -1,0 +1,41 @@
+# RegimeCombo — Trend following in trends, mean reversion in ranges
+# Research: combining both smooths equity curve, drawdowns of one
+# funded by profits of the other (QuantPedia, Setup4Alpha 2026)
+
+detector:
+  type: adx
+  timeframe: 1D
+  params:
+    sma_period: 42
+    adx_period: 14
+    adx_min: 20            # lower than default — more time in trending mode
+    confirm_bars: 2
+
+regimes:
+  trending-up:
+    behavior: breakout     # Donchian breakout captures big bull moves
+  trending-down: null      # flat in downtrends — preserve capital
+  ranging-up:
+    behavior: bb_mean_reversion
+  ranging-down:
+    behavior: bb_mean_reversion
+  cold-start: null
+
+params:
+  risk_pct: 0.05
+  sl_pct: 0.04
+  tp_pct: 0.12
+  trail_pct: 0.025
+  donchian_period: 20
+  bb_window: 15
+  bb_mult: 2.0
+  rsi_period: 14
+  rsi_oversold: 35
+  rsi_overbought: 65
+  vol_mult: 1.0
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 6
+
+data_routes: [1D, 4h]

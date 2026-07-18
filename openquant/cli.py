@@ -405,6 +405,20 @@ def results(session_id, limit, json_output) -> None:
                 regime_periods = session.get('regime_periods')
                 if regime_periods:
                     click.echo(f'\n{_format_regime_periods(regime_periods)}')
+                # Show attached research notes
+                notes_data = _api_post(f'/research-notes/session/{session_id}', {}, server_url, token)
+                notes = notes_data.get('notes', [])
+                if notes:
+                    click.echo(f'\n  Research Notes:')
+                    for note in notes:
+                        rn = note.get('round_number', '?')
+                        click.echo(f'    Round {rn} ({note.get("author", "?")})')
+                        if note.get('hypothesis'):
+                            click.echo(f'      Hypothesis: {note["hypothesis"][:200]}')
+                        if note.get('diagnosis'):
+                            click.echo(f'      Diagnosis:  {note["diagnosis"][:200]}')
+                        if note.get('next_steps'):
+                            click.echo(f'      Next:       {note["next_steps"][:200]}')
     else:
         # List recent sessions
         data = _api_post('/backtest/sessions', {'limit': limit}, server_url, token)
@@ -1606,6 +1620,332 @@ def diff_cmd(component_type, name, tag_a, tag_b) -> None:
     except (FileNotFoundError, ValueError) as e:
         click.echo(f'Error: {e}', err=True)
         sys.exit(1)
+
+
+@cli.command()
+@click.argument('session_id')
+@click.option('--hypothesis', default=None, help='What you expected')
+@click.option('--diagnosis', default=None, help='Why it failed/succeeded')
+@click.option('--next-steps', default=None, help='What to try next')
+@click.option('--result-summary', default=None, help='One-line result')
+@click.option('--regime-quality', default=None, help='Regime quality assessment')
+@click.option('--tags', default=None, help='Comma-separated tags')
+@click.option('--author', default='human', help='Note author (human/agent-name)')
+@click.option('--json-input', default=None, help='Full note as JSON string')
+@click.option('--json-output', is_flag=True, help='Output raw JSON')
+def annotate(session_id, hypothesis, diagnosis, next_steps, result_summary,
+             regime_quality, tags, author, json_input, json_output):
+    """Add a research note to a backtest session.
+
+    Examples:
+
+        jesse annotate abc123 --hypothesis "baseline" --diagnosis "detector flickering"
+
+        jesse annotate abc123 --json-input '{"hypothesis":"test","diagnosis":"..."}'
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    if json_input:
+        payload = json.loads(json_input)
+        payload['session_id'] = session_id
+        if 'author' not in payload:
+            payload['author'] = author
+    else:
+        payload = {
+            'session_id': session_id,
+            'author': author,
+        }
+        if hypothesis:
+            payload['hypothesis'] = hypothesis
+        if diagnosis:
+            payload['diagnosis'] = diagnosis
+        if next_steps:
+            payload['next_steps'] = next_steps
+        if result_summary:
+            payload['result_summary'] = result_summary
+        if regime_quality:
+            payload['regime_quality'] = regime_quality
+        if tags:
+            payload['tags'] = [t.strip() for t in tags.split(',')]
+
+    data = _api_post('/research-notes', payload, server_url, token)
+
+    if json_output:
+        click.echo(json.dumps(data, indent=2, default=str))
+    else:
+        note = data.get('note', {})
+        if note:
+            click.echo(f'Research note created for {note.get("strategy_name", "?")} '
+                        f'(round {note.get("round_number", "?")})')
+        else:
+            click.echo(data.get('error', 'Failed to create research note'))
+
+
+@cli.command()
+@click.argument('strategy_name')
+@click.option('--limit', default=20, type=int, help='Number of notes to show')
+@click.option('--json-output', is_flag=True, help='Output raw JSON')
+def research(strategy_name, limit, json_output):
+    """Show research notes timeline for a strategy.
+
+    Examples:
+
+        jesse research VolSqueeze
+
+        jesse research TrendFade --limit 50
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    data = _api_post(f'/research-notes/strategy/{strategy_name}',
+                     {'limit': limit}, server_url, token)
+    notes = data.get('notes', [])
+
+    if not notes:
+        click.echo(f'No research notes found for {strategy_name}.')
+        return
+
+    if json_output:
+        click.echo(json.dumps(notes, indent=2, default=str))
+        return
+
+    click.echo(f'Research Notes: {strategy_name}')
+    click.echo('=' * 60)
+
+    from datetime import datetime, timezone
+    for note in notes:
+        rn = note.get('round_number', '?')
+        created = note.get('created_at', 0)
+        if isinstance(created, (int, float)) and created > 1e12:
+            date_str = datetime.fromtimestamp(created / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+        else:
+            date_str = '?'
+        author_str = note.get('author', 'human')
+        session_id = note.get('session_id', '')
+        session_short = session_id[:8] if session_id else 'no session'
+
+        click.echo(f'\n  Round {rn} — {date_str} (by {author_str}) [{session_short}]')
+        if note.get('hypothesis'):
+            click.echo(f'    Hypothesis:     {note["hypothesis"]}')
+        if note.get('result_summary'):
+            click.echo(f'    Result:         {note["result_summary"]}')
+        if note.get('regime_quality'):
+            click.echo(f'    Regime quality: {note["regime_quality"]}')
+        if note.get('diagnosis'):
+            click.echo(f'    Diagnosis:      {note["diagnosis"]}')
+        if note.get('next_steps'):
+            click.echo(f'    Next steps:     {note["next_steps"]}')
+        tags = note.get('tags', [])
+        if tags:
+            click.echo(f'    Tags:           {", ".join(tags)}')
+
+
+@cli.command('analyze-timeframe')
+@click.argument('indicator', default='bb')
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--finish', required=True, help='Finish date (YYYY-MM-DD)')
+@click.option('--period', default=20, type=int, help='Indicator period')
+@click.option('--timeframes', default='15m,1h,4h,1D', help='Comma-separated timeframes')
+@click.option('--exchange', default='Bybit USDT Perpetual')
+@click.option('--symbol', default='BTC-USDT')
+@click.option('--bb-mult', default=2.0, type=float, help='BB multiplier')
+@click.option('--json-output', is_flag=True, help='Output raw JSON')
+def analyze_timeframe(indicator, start, finish, period, timeframes,
+                      exchange, symbol, bb_mult, json_output):
+    """Compare indicator values across timeframes for a date range.
+
+    Answers: which timeframe captures the actual price structure?
+
+    Examples:
+
+        jesse analyze-timeframe bb --start 2025-08-23 --finish 2025-09-27
+
+        jesse analyze-timeframe rsi --start 2025-06-01 --finish 2025-09-30 --period 14
+
+        jesse analyze-timeframe ema --start 2025-06-01 --finish 2025-09-30 --timeframes 1h,4h,1D
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    tf_list = [t.strip() for t in timeframes.split(',')]
+    payload = {
+        'exchange': exchange,
+        'symbol': symbol,
+        'start_date': start,
+        'finish_date': finish,
+        'indicator': indicator,
+        'period': period,
+        'timeframes': tf_list,
+        'bb_mult': bb_mult,
+    }
+
+    data = _api_post('/diagnose/analyze-timeframe', payload, server_url, token)
+
+    if 'error' in data:
+        click.echo(f'Error: {data["error"]}')
+        sys.exit(1)
+
+    if json_output:
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+
+    _format_timeframe_analysis(data)
+
+
+def _format_timeframe_analysis(data: dict) -> None:
+    ind = data['indicator'].upper()
+    click.echo(f'\n{ind}(period={data["period"]}) — {data["symbol"]}')
+    click.echo(f'{data["start_date"]} to {data["finish_date"]} ({data["duration_days"]}d)')
+    click.echo(f'Price range: ${data["price_low"]:,.0f} - ${data["price_high"]:,.0f} ({data["price_range_pct"]:.1f}%)')
+    click.echo()
+
+    for tf in data['timeframes']:
+        if 'error' in tf:
+            click.echo(f'  {tf["timeframe"]:>4}  ERROR: {tf["error"]}')
+            continue
+
+        click.echo(f'  {tf["timeframe"]:>4}  lookback={tf["lookback_days"]:.1f}d ({tf["coverage_vs_period"]:.0f}% of period)')
+
+        if data['indicator'] == 'bb':
+            avg_w = tf.get('avg_band_width_pct', 0)
+            cur_w = tf.get('current_width_pct', 0)
+            fit = 'NOISE' if avg_w < 2 else ('NARROW' if avg_w < 4 else 'GOOD')
+            click.echo(f'        band width: avg={avg_w:.1f}% cur={cur_w:.1f}% '
+                       f'(min={tf.get("min_band_width_pct", 0):.1f}% max={tf.get("max_band_width_pct", 0):.1f}%) '
+                       f'-> {fit}')
+        elif data['indicator'] == 'ema':
+            click.echo(f'        avg deviation: {tf.get("avg_deviation_pct", 0):.2f}% '
+                       f'(max above: +{tf.get("max_above_pct", 0):.2f}%, max below: {tf.get("max_below_pct", 0):.2f}%)')
+        elif data['indicator'] == 'rsi':
+            click.echo(f'        RSI range: {tf.get("min_rsi", 0):.0f}-{tf.get("max_rsi", 0):.0f} '
+                       f'(avg={tf.get("avg_rsi", 0):.0f}, '
+                       f'{tf.get("pct_oversold", 0):.0f}% oversold, '
+                       f'{tf.get("pct_overbought", 0):.0f}% overbought)')
+        elif data['indicator'] == 'atr':
+            click.echo(f'        ATR: avg={tf.get("avg_atr_pct", 0):.2f}% '
+                       f'(min={tf.get("min_atr_pct", 0):.2f}% max={tf.get("max_atr_pct", 0):.2f}%)')
+    click.echo()
+
+
+@cli.command('diagnose')
+@click.argument('session_id')
+@click.option('--top-n', default=5, type=int, help='Number of top losers to show')
+@click.option('--json-output', is_flag=True, help='Output raw JSON')
+def diagnose(session_id, top_n, json_output):
+    """Analyze trades from a backtest session using decision traces.
+
+    Decomposes results by regime, exit type, and individual trade decisions.
+    Shows what went wrong and why for each losing trade.
+
+    Examples:
+
+        jesse diagnose f543bc65-...
+
+        jesse diagnose f543bc65-... --top-n 10
+    """
+    server_url = _get_server_url()
+    token = _get_auth_token(server_url)
+
+    data = _api_post(f'/diagnose/session/{session_id}',
+                     {'top_n': top_n}, server_url, token)
+
+    if 'error' in data:
+        click.echo(f'Error: {data["error"]}')
+        sys.exit(1)
+
+    if json_output:
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+
+    _format_diagnosis(data)
+
+
+def _format_diagnosis(data: dict) -> None:
+    strategy = data.get('strategy_name', 'Unknown')
+    sid = data.get('session_id', '?')[:8]
+    count = data.get('trade_count', 0)
+
+    click.echo(f'\n{strategy} — Session {sid} — {count} trades\n')
+
+    # REGIME BREAKDOWN
+    click.echo('REGIME BREAKDOWN')
+    for r in data.get('regime_breakdown', []):
+        flag = ''
+        if r.get('worst'):
+            flag = '  <- worst'
+        elif r['trade_count'] == 0:
+            flag = '  OK'
+        click.echo(
+            f'  {r["regime"]:>15} ({r["duration_days"]:.0f}d): '
+            f'{r["trade_count"]:>3} trades, '
+            f'{r["win_rate"]:.0f}% win, '
+            f'{r["total_pnl_pct"]:+.2f}% PnL{flag}'
+        )
+    click.echo()
+
+    # EXIT ANALYSIS
+    click.echo('EXIT ANALYSIS')
+    exits = data.get('exit_analysis', {})
+    total_exits = sum(exits.values()) or 1
+    for exit_type in sorted(exits, key=lambda k: -exits[k]):
+        cnt = exits[exit_type]
+        pct = cnt / total_exits * 100
+        click.echo(f'  {exit_type:<15} {cnt:>3} ({pct:.0f}%)')
+    click.echo()
+
+    # TOP LOSERS
+    losers = data.get('top_losers', [])
+    if losers:
+        click.echo('TOP LOSERS (with trace)')
+        for i, loser in enumerate(losers, 1):
+            t = loser['trade']
+            click.echo(
+                f'  #{i}  {t["type"].upper()} '
+                f'${t.get("entry_price", 0):,.0f} -> '
+                f'${t.get("exit_price", 0):,.0f} '
+                f'({t.get("PNL_percentage", 0):+.2f}%)'
+            )
+            entry_trace = t.get('entry_trace', {})
+            click.echo(
+                f'      Regime: {entry_trace.get("regime", "?")} | '
+                f'Behavior: {entry_trace.get("behavior", "?")}'
+            )
+            indicators = entry_trace.get('indicators', {})
+            if indicators:
+                ind_parts = []
+                for k, v in indicators.items():
+                    if isinstance(v, bool):
+                        continue
+                    if isinstance(v, float):
+                        ind_parts.append(f'{k}={v:.2f}')
+                    else:
+                        ind_parts.append(f'{k}={v}')
+                if ind_parts:
+                    click.echo(f'      Trace: {", ".join(ind_parts[:8])}')
+            verdict = loser.get('verdict', '')
+            if verdict:
+                click.echo(f'      Verdict: {verdict}')
+            click.echo()
+
+    # MISSED OPPORTUNITIES
+    missed = data.get('missed_opportunities', [])
+    if missed:
+        click.echo('MISSED OPPORTUNITIES')
+        from datetime import datetime, timezone
+        for m in missed:
+            start_ts = m.get('start', 0)
+            end_ts = m.get('end', 0)
+            if isinstance(start_ts, (int, float)) and start_ts > 1e12:
+                s = datetime.fromtimestamp(start_ts / 1000, tz=timezone.utc).strftime('%b %d')
+                e = datetime.fromtimestamp(end_ts / 1000, tz=timezone.utc).strftime('%b %d')
+            else:
+                s, e = '?', '?'
+            move = m.get('price_move_pct')
+            move_str = f', price moved {move:+.1f}%' if move is not None else ''
+            click.echo(f'  {s}-{e}: {m["regime"]}{move_str}, 0 entries')
+            if m.get('reason'):
+                click.echo(f'    -> {m["reason"]}')
 
 
 @cli.command()

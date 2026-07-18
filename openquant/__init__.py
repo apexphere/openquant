@@ -57,6 +57,8 @@ from openquant.controllers.closed_trade_controller import router as closed_trade
 from openquant.controllers.order_controller import router as order_router
 from openquant.controllers.tabs_controller import router as tabs_router
 from openquant.controllers.detector_optimization_controller import router as detector_optimization_router
+from openquant.controllers.research_controller import router as research_router
+from openquant.controllers.diagnose_controller import router as diagnose_router
 
 # register routers
 fastapi_app.include_router(websocket_router)
@@ -76,6 +78,8 @@ fastapi_app.include_router(closed_trade_router)
 fastapi_app.include_router(order_router)
 fastapi_app.include_router(tabs_router)
 fastapi_app.include_router(detector_optimization_router)
+fastapi_app.include_router(research_router)
+fastapi_app.include_router(diagnose_router)
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # Live Trade Plugin

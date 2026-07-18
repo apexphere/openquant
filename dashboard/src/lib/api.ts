@@ -6,6 +6,8 @@ import type {
   CandleExisting,
   DetectorOptimizationSession,
   DetectorOptimizationDetail,
+  ResearchNote,
+  StrategyWithNotes,
 } from "./types";
 
 const API_BASE = "http://localhost:9000";
@@ -294,6 +296,66 @@ export async function fetchSystemInfo(): Promise<{
   is_initiated: boolean;
 }> {
   return apiFetch("/system/general-info", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+// Research Notes API
+
+export async function fetchResearchNotesBySession(
+  sessionId: string
+): Promise<ResearchNote[]> {
+  const data = await apiFetch<{ notes: ResearchNote[] }>(
+    `/research-notes/session/${sessionId}`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return data.notes ?? [];
+}
+
+export async function fetchResearchNotesByStrategy(
+  strategyName: string
+): Promise<ResearchNote[]> {
+  const data = await apiFetch<{ notes: ResearchNote[] }>(
+    `/research-notes/strategy/${encodeURIComponent(strategyName)}`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return data.notes ?? [];
+}
+
+export async function fetchStrategiesWithNotes(): Promise<StrategyWithNotes[]> {
+  const data = await apiFetch<{ strategies: StrategyWithNotes[] }>(
+    "/research-notes/strategies",
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return data.strategies ?? [];
+}
+
+export async function createResearchNote(
+  note: Partial<ResearchNote> & { session_id?: string; strategy_name?: string }
+): Promise<ResearchNote> {
+  const data = await apiFetch<{ note: ResearchNote }>("/research-notes", {
+    method: "POST",
+    body: JSON.stringify(note),
+  });
+  return data.note;
+}
+
+export async function updateResearchNote(
+  id: string,
+  fields: Partial<ResearchNote>
+): Promise<ResearchNote> {
+  const data = await apiFetch<{ note: ResearchNote }>(
+    `/research-notes/${id}/update`,
+    { method: "POST", body: JSON.stringify(fields) }
+  );
+  return data.note;
+}
+
+export async function deleteResearchNote(
+  id: string
+): Promise<{ message: string }> {
+  return apiFetch(`/research-notes/${id}/delete`, {
     method: "POST",
     body: JSON.stringify({}),
   });

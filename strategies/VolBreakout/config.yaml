@@ -1,0 +1,43 @@
+# VolBreakout — Breakout in high volatility, mean reversion in low volatility
+# Research: Adaptive Risk Control achieved Sharpe 2.47 in 2022 bear market
+# by trading breakouts only when volatility expands (MDPI 2024)
+
+detector:
+  type: volatility
+  timeframe: 1D
+  params:
+    atr_period: 14
+    lookback: 50
+    high_percentile: 70
+    low_percentile: 30
+    confirm_bars: 2
+
+regimes:
+  high-volatility:
+    behavior: breakout         # big moves in high vol — ride them
+  low-volatility:
+    behavior: bb_mean_reversion  # tight ranges in low vol — fade extremes
+  normal:
+    behavior: trend_follow     # mild trend following in normal conditions
+  cold-start: null
+
+params:
+  risk_pct: 0.04
+  sl_pct: 0.05
+  tp_pct: 0.15
+  trail_pct: 0.03
+  donchian_period: 25
+  bb_window: 20
+  bb_mult: 2.0
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+  vol_mult: 1.2
+  trend_ma_period: 50
+  trend_ma_type: ema
+
+transitions:
+  on_switch: close_all
+  cooldown_bars: 4
+
+data_routes: [1D, 4h]

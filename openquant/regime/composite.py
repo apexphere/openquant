@@ -44,6 +44,11 @@ _BEHAVIOR_REGISTRY = {
     'trend_pullback_short': 'openquant.regime.behaviors.trend_pullback_short.TrendPullbackShortBehavior',
     'grid': 'openquant.regime.behaviors.grid.GridBehavior',
     'breakout': 'openquant.regime.behaviors.breakout.BreakoutBehavior',
+    'donchian_mean_reversion': 'openquant.regime.behaviors.donchian_mean_reversion.DonchianMeanReversionBehavior',
+    'micro_trend': 'openquant.regime.behaviors.micro_trend.MicroTrendBehavior',
+    'sma_crossover': 'openquant.regime.behaviors.sma_crossover.SmaCrossoverBehavior',
+    'sma_crossover_long': 'openquant.regime.behaviors.sma_crossover_long.SmaCrossoverLongBehavior',
+    'sma_crossover_short': 'openquant.regime.behaviors.sma_crossover_short.SmaCrossoverShortBehavior',
 }
 
 _FILTER_REGISTRY = {
